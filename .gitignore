@@ -11,3 +11,7 @@ vpn-manager/mihomo/cache.db
 
 # macOS
 .DS_Store
+
+# 测试 venv + pytest 缓存
+vpn-manager/.venv/
+.pytest_cache/
