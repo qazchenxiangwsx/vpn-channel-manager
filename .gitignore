@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# 机密 / 运行态(每台机器各自生成,绝不入库)
+.env
+# 由 config.template.yaml 渲染,含 mihomo 密钥
+vpn-manager/mihomo/config.yaml
+# mihomo 运行缓存
+vpn-manager/mihomo/cache.db
+
+# macOS
+.DS_Store

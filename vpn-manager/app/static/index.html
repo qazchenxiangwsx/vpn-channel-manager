@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPN 通道管理器 (demo)</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e6e8ec; --mut:#8b93a1; --ok:#37c871; --warn:#e0a23b; --bad:#e35d6a; --acc:#5b8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .tag { font-size:12px; color:var(--mut); }
+  header button { margin-left:auto; }
+  main { max-width:1080px; margin:0 auto; padding:24px; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:7px 12px; cursor:pointer; font-size:13px; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
+  button.danger { background:transparent; border:1px solid var(--bad); color:var(--bad); }
+  input, select { background:#0c0e13; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:7px 9px; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .badge { font-size:12px; padding:2px 9px; border-radius:20px; border:1px solid var(--line); }
+  .badge.ok{ color:var(--ok); border-color:var(--ok);} .badge.run{ color:var(--warn); border-color:var(--warn);} .badge.bad{ color:var(--bad); border-color:var(--bad);}
+  .mut { color:var(--mut); }
+  .doms { margin-top:8px; }
+  .dom { display:inline-block; font-size:12px; background:#0c0e13; border:1px solid var(--line); border-radius:6px; padding:2px 8px; margin:2px 4px 2px 0; }
+  iframe { width:100%; height:520px; border:1px solid var(--line); border-radius:10px; margin-top:10px; background:#fff; }
+  pre { white-space:pre-wrap; background:#0c0e13; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
+  label { font-size:12px; color:var(--mut); display:block; margin-bottom:4px; }
+  h3 { margin:0 0 12px; font-size:14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>VPN 通道管理器</h1><span class="tag">demo · 全 Docker · 端口高位随机</span>
+  <button class="ghost" onclick="showSnippet()">Clash 配置</button>
+</header>
+<main>
+  <div class="card">
+    <h3>＋ 新建通道</h3>
+    <div class="grid">
+      <div><label>客户名</label><input id="f-name" placeholder="客户A"></div>
+      <div><label>类型</label><select id="f-type"><option value="easyconnect">EasyConnect</option><option value="atrust">aTrust</option></select></div>
+      <div><label>EC 版本</label><input id="f-ver" value="7.6.3"></div>
+      <div><label>VPN 网关地址</label><input id="f-server" placeholder="https://vpn.acme.com"></div>
+      <div><label>账号(选填)</label><input id="f-user" placeholder="登录页里手动输也行"></div>
+      <div><label>内网探测网址</label><input id="f-probe" placeholder="http://oa.acme.内网/"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button onclick="createCh()">创建并启动容器</button><span id="create-msg" class="mut"></span></div>
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+async function api(m, u, b){ const r = await fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}); return r.headers.get('content-type')?.includes('json')?r.json():r.text(); }
+
+function badge(s){ if(s==='logged_in')return '<span class="badge ok">🟢 已连接</span>'; if(s==='error')return '<span class="badge bad">⚠ 出错</span>'; if(s==='stopped')return '<span class="badge bad">停止</span>'; return '<span class="badge run">🟡 待登录</span>'; }
+
+async function load(){
+  const chs = await api('GET','/api/channels');
+  $('#list').innerHTML = chs.length ? '' : '<p class="mut">还没有通道,上面新建一个。</p>';
+  for(const c of chs){
+    const el = document.createElement('div'); el.className='card';
+    el.innerHTML = `
+      <div class="row">
+        <b>${c.name}</b> <span class="mut">${c.vpn_type}${c.ec_ver?(' '+c.ec_ver):''} · id ${c.id}</span>
+        ${badge(c.status)}
+        <span style="margin-left:auto"></span>
+        <button class="ghost" onclick="doLogin('${c.id}')">登录</button>
+        <button class="ghost" onclick="checkStatus('${c.id}',this)">检测连通</button>
+        <button class="danger" onclick="del('${c.id}')">删除</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input placeholder="绑定域名,如 crm-a.com" id="dom-${c.id}" style="flex:1">
+        <button onclick="bind('${c.id}')">绑定 → 走这条通道</button>
+      </div>
+      <div class="doms">${(c.domains||[]).map(d=>`<span class="dom">${d.pattern}</span>`).join('')||'<span class="mut">未绑定域名</span>'}</div>
+      <div id="vnc-${c.id}"></div>`;
+    $('#list').appendChild(el);
+  }
+}
+
+async function createCh(){
+  $('#create-msg').textContent='创建中(首次会拉取镜像,稍等)...';
+  const r = await api('POST','/api/channels',{
+    name:$('#f-name').value, vpn_type:$('#f-type').value, ec_ver:$('#f-ver').value,
+    server:$('#f-server').value, username:$('#f-user').value, probe_url:$('#f-probe').value
+  });
+  $('#create-msg').textContent = r.error ? ('失败: '+r.error) : '已创建,点该通道的“登录”完成验证';
+  load();
+}
+async function doLogin(id){
+  const r = await api('GET',`/api/channels/${id}/login`);
+  if(r.url) $('#vnc-'+id).innerHTML = `<div class="mut" style="margin-top:8px">在下面窗口完成账号/短信/扫码登录(和你平时登这家 VPN 一样):</div><iframe src="${r.url}"></iframe>`;
+}
+async function checkStatus(id,btn){ btn.textContent='检测中...'; const r=await api('GET',`/api/channels/${id}/status`); btn.textContent='检测连通'; load(); }
+async function bind(id){ const p=$('#dom-'+id).value.trim(); if(!p)return; await api('POST',`/api/channels/${id}/domains`,{pattern:p}); load(); }
+async function del(id){ if(confirm('删除这个通道?')){ await api('DELETE',`/api/channels/${id}`); load(); } }
+async function showSnippet(){ const t = await api('GET','/api/clash-snippet'); alert(t); }
+load(); setInterval(load, 8000);
+</script>
+</body>
+</html>

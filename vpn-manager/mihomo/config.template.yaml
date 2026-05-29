@@ -1,0 +1,30 @@
+mixed-port: 7899
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 0.0.0.0:9090
+secret: "__SECRET__"
+
+# 内网域名要在 VPN 隧道侧解析,不能在本机解析(命门)。
+# respect-rules 让 DNS 跟随分流规则;命中某通道的域名交给该通道的 SOCKS5 远程解析。
+dns:
+  enable: true
+  enhanced-mode: redir-host
+  nameserver: [223.5.5.5, 119.29.29.29]
+  respect-rules: true
+  proxy-server-nameserver: [223.5.5.5]
+
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+    TLS:
+      ports: [443, 8443]
+
+proxies: []
+proxy-groups: []
+rules:
+  - MATCH,DIRECT
