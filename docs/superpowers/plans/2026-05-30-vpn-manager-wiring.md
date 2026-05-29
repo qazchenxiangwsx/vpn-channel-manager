@@ -842,7 +842,7 @@ Run:
 ```bash
 cd /private/var/www/test_vpn/vpn-manager && ./.venv/bin/pytest tests/test_api.py -q
 ```
-Expected: `11 passed`。
+Expected: `10 passed`。
 
 - [ ] **Step 8: Commit**
 
@@ -986,7 +986,7 @@ Run:
 ```bash
 cd /private/var/www/test_vpn/vpn-manager && ./.venv/bin/pytest tests/ -q
 ```
-Expected: `25 passed`(store7 + manager4 + api11 + clash3)。
+Expected: `24 passed`(store7 + manager4 + api10 + clash3)。
 
 - [ ] **Step 6: Commit**
 
@@ -1554,7 +1554,7 @@ Run:
 ```bash
 cd /private/var/www/test_vpn/vpn-manager && ./.venv/bin/pytest tests/ -q
 ```
-Expected: `25 passed`。
+Expected: `24 passed`。
 
 - [ ] **Step 2: mock 残留全局自检**
 
@@ -1583,7 +1583,7 @@ cd /private/var/www/test_vpn && git add -A && git commit -m "chore: final regres
 ---
 
 ## 验收标准(Definition of Done)
-- `pytest tests/ -q` → 25 passed。
+- `pytest tests/ -q` → 24 passed。
 - `tests/smoke.sh` → ALL SMOKE CHECKS PASSED。
 - 5 屏无 `window.VPN`/`data.js` 残留,交互走 `api.*`。
 - 命门 §8 逐条不破。
