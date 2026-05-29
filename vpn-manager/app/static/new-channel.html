@@ -485,7 +485,7 @@
     }
     const fakeMac = randMac();
     const chanId = Math.random().toString(16).slice(2, 10);
-    const volName = "vpn-" + chanId + "-root";
+    const volName = "vpndata-" + chanId;   // 与后端 manager 实际卷名格式一致
 
     // 侧栏/底栏：异步取真实系统信息与通道数
     api.system().then(s => { $("#foot-port").textContent = ":" + s.mihomo_port; });

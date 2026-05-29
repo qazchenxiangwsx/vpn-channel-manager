@@ -514,8 +514,7 @@
     // ── 顶部操作 ──
     function goLogin() {
       const loginTab = document.querySelector('.tab[data-tab="login"]');
-      if (loginTab) loginTab.click();
-      loadVnc();
+      if (loginTab) loginTab.click();   // 触发下方登录 tab 的 click 监听 → loadVnc()
     }
     $("#act-relogin").addEventListener("click", () => { goLogin(); toast("已打开登录窗口，请在窗口内重新过验证"); });
     $("#vnc-relogin").addEventListener("click", () => { loadVnc(); toast("已请求重新登录：请在上方窗口完成验证，完成后将自动探活"); });
@@ -656,6 +655,9 @@
     // 切到日志 tab 时拉真日志
     const logsTab = document.querySelector('.tab[data-tab="logs"]');
     if (logsTab) logsTab.addEventListener("click", () => loadLogs());
+    // 切到登录 tab 时拉真 noVNC 窗口
+    const loginTab = document.querySelector('.tab[data-tab="login"]');
+    if (loginTab) loginTab.addEventListener("click", () => loadVnc());
 
     // 启动：加载真实数据后渲染整屏
     boot().then(() => {
