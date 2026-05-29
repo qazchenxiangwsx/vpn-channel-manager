@@ -5,6 +5,7 @@ import secrets
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 import store
 import manager
@@ -128,3 +129,8 @@ def clash_snippet():
     else:
         lines.append("  # (还没绑定任何域名)")
     return "\n".join(lines)
+
+
+# 静态前端:把 app/static/ 整目录挂到根。上面的 /api/* 路由先注册、优先匹配;
+# 其余路径(/css、/js、/*.html)由这里服务,html=True 让 "/" 返回 index.html。
+app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="static")

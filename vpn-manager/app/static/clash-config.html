@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clash 接入 · VPN 通道管理器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+  <style>
+    /* 屏内独有：接入步骤序号 + 代码块复制条 + 流图换行间距 */
+    .step-card { position: relative; }
+    .step-no {
+      width: 28px; height: 28px; flex: none;
+      border-radius: var(--radius-pill);
+      display: grid; place-items: center;
+      font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600;
+      background: var(--surface-2); color: var(--fg); border: 1px solid var(--border);
+    }
+    .copy-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: inherit; opacity: 0.78;
+      font-family: var(--font-mono); font-size: var(--text-xs);
+      transition: opacity var(--motion-fast) var(--ease-standard);
+    }
+    .copy-btn:hover { opacity: 1; }
+    .copy-btn svg { width: 14px; height: 14px; }
+    /* .note-line 已提升至 css/app.css（跨屏共用） */
+    /* 数据流：窄屏箭头转向下 */
+    .flow-arrow .down { display: none; }
+    @media (max-width: 720px) {
+      .flow { flex-direction: column; align-items: stretch; }
+      .flow-arrow { padding: var(--space-2) 0; }
+      .flow-arrow .right { display: none; }
+      .flow-arrow .down { display: block; }
+    }
+  </style>
+</head>
+<body data-page="clash">
+  <div class="app">
+    <!-- ════ 侧栏（所有屏一致） ════ -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5l8-3z"/></svg>
+        </span>
+        <span class="logo-text">VPN 通道管理器<small>tunnel manager</small></span>
+      </div>
+      <nav class="sidebar-nav">
+        <span class="nav-label">管理</span>
+        <a class="nav-item" data-nav="channels" href="index.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+          通道总览 <span class="count" id="nav-count">—</span>
+        </a>
+        <a class="nav-item" data-nav="monitor" href="monitor.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+          流量监控
+        </a>
+        <a class="nav-item" data-nav="clash" href="clash-config.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 6H15M6 8.5V14a3.5 3.5 0 003.5 3.5H15"/></svg>
+          Clash 接入
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sys-chip ok" style="width:100%; justify-content:flex-start;">
+          <span class="dot"></span>
+          <span>mihomo 运行中</span>
+          <span class="k spacer" id="foot-port">:7899</span>
+        </div>
+        <p class="t-xs muted" style="margin-top:10px; padding:0 6px; line-height:1.5;">单机自用 · 全部监听 <span class="mono">127.0.0.1</span></p>
+      </div>
+    </aside>
+
+    <!-- ════ 主区 ════ -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" aria-label="菜单">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1>Clash 接入</h1>
+        <span class="spacer"></span>
+        <span class="sys-chip ok hide-mobile" id="chip-clash"><span class="dot"></span>Clash 已接入</span>
+        <a class="btn btn-secondary" href="index.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          返回总览
+        </a>
+      </header>
+
+      <div class="content content-narrow stack-6">
+        <!-- 页头说明 -->
+        <div class="page-head" data-od-id="clash-intro">
+          <div class="crumb">设置 / Clash 接入</div>
+          <h1>把本工具接进你现有的 Clash</h1>
+          <p>本工具只在你 Clash 的下游充当“VPN 选择器”。接入只做两件事：加 1 个 <span class="mono">vpn-router</span> 节点、订阅 1 份客户分流规则（域名 + IP）。你 Clash 的其余配置一字不改，未命中的流量照走你原有逻辑——两边互不影响。</p>
+        </div>
+
+        <div class="banner info" data-od-id="clash-banner">
+          <svg class="bicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+          <div>
+            <div class="bt">只加 1 个节点 + 订阅 1 份规则</div>
+            <p>你现有的 Clash 留在最前面当总分发器（系统代理 / TUN 保持现状）；只把“被绑定的客户域名”指给本工具的第二个 mihomo 实例。其余流量在你的 Clash 内直接走原有逻辑（机场 / DIRECT / 广告拦截），本工具完全不介入。</p>
+          </div>
+        </div>
+
+        <!-- 端到端数据流图 -->
+        <section data-od-id="clash-flow">
+          <div class="row-between" style="margin-bottom:16px;">
+            <h2>端到端数据流</h2>
+            <span class="t-sm muted">访问一个被绑定的客户内网域名时</span>
+          </div>
+          <div class="card card-pad">
+            <div class="flow">
+              <div class="flow-node">
+                <div class="fn-t">浏览器</div>
+                <div class="fn-d">访问 crm-a.com</div>
+              </div>
+              <div class="flow-arrow">
+                <svg class="right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                <svg class="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+              </div>
+              <div class="flow-node">
+                <div class="fn-t">你的 Clash</div>
+                <div class="fn-d">命中客户域名 / IP<br>no-resolve 透传</div>
+              </div>
+              <div class="flow-arrow">
+                <svg class="right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                <svg class="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+              </div>
+              <div class="flow-node accent">
+                <div class="fn-t">本工具 mihomo</div>
+                <div class="fn-d" id="flow-mihomo">:7899 · 第二跳<br>VPN 选择器</div>
+              </div>
+              <div class="flow-arrow">
+                <svg class="right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                <svg class="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+              </div>
+              <div class="flow-node">
+                <div class="fn-t">容器 SOCKS5</div>
+                <div class="fn-d">:108xx · EC / aTrust</div>
+              </div>
+              <div class="flow-arrow">
+                <svg class="right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                <svg class="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+              </div>
+              <div class="flow-node">
+                <div class="fn-t">客户内网</div>
+                <div class="fn-d">DNS 在隧道侧解析</div>
+              </div>
+            </div>
+            <p class="t-xs muted" style="margin-top:16px; line-height:1.6;">未命中客户域名的流量不进本工具——在你的 Clash 内直接走原有逻辑，正常上网。兜底 <span class="mono">MATCH → DIRECT</span> 永不回环到你的 Clash，避免环路。</p>
+          </div>
+        </section>
+
+        <!-- 三步接入 -->
+        <section data-od-id="clash-steps">
+          <div class="row-between" style="margin-bottom:16px;">
+            <h2>三步接入</h2>
+            <span class="t-sm muted">下面的片段可直接复制粘贴</span>
+          </div>
+
+          <div class="stack-4">
+            <!-- ① 加节点 -->
+            <article class="card step-card" data-od-id="step-proxy">
+              <div class="card-head">
+                <div class="row" style="gap:12px;">
+                  <span class="step-no">1</span>
+                  <div>
+                    <h3>加节点</h3>
+                    <p class="t-xs muted" style="margin-top:2px;">把 <span class="mono">vpn-router</span> 粘进你现有 Clash 的 <span class="mono">proxies:</span> 下</p>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body" style="padding:0;">
+                <div class="code-head">
+                  <span>proxies</span>
+                  <button class="copy-btn" id="copy-proxy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+                    复制
+                  </button>
+                </div>
+                <pre class="code" id="code-proxy"></pre>
+              </div>
+            </article>
+
+            <!-- ② 加规则 -->
+            <article class="card step-card" data-od-id="step-rules">
+              <div class="card-head">
+                <div class="row" style="gap:12px;">
+                  <span class="step-no">2</span>
+                  <div>
+                    <h3>加规则</h3>
+                    <p class="t-xs muted" style="margin-top:2px;">粘到你 <span class="mono">rules:</span> 顶部，让客户域名 / IP 优先命中</p>
+                  </div>
+                </div>
+                <span class="tag mono"><span id="rules-count">—</span> 条</span>
+              </div>
+              <div class="card-body" style="padding:0;">
+                <div class="code-head">
+                  <span>rules</span>
+                  <button class="copy-btn" id="copy-rules">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+                    复制
+                  </button>
+                </div>
+                <pre class="code" id="code-rules"></pre>
+                <div class="card-body">
+                  <div class="note-line">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+                    <span><span class="mono">no-resolve</span> 让你的 Clash 不抢先在本地解析域名，把域名原样透传给 <span class="mono">vpn-router</span>，由 VPN 侧 DNS 解析——客户内网域名通常只在隧道侧才解析得到。</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <!-- ③ 订阅 rule-provider -->
+            <article class="card step-card" data-od-id="step-provider">
+              <div class="card-head">
+                <div class="row" style="gap:12px;">
+                  <span class="step-no">3</span>
+                  <div>
+                    <h3>订阅 rule-provider</h3>
+                    <p class="t-xs muted" style="margin-top:2px;">推荐：日常增删域名 / IP 零打扰，Clash 靠 <span class="mono">interval</span> 自动拉取</p>
+                  </div>
+                </div>
+                <span class="pill">推荐</span>
+              </div>
+              <div class="card-body" style="padding:0;">
+                <div class="code-head">
+                  <span>rule-providers</span>
+                  <button class="copy-btn" id="copy-provider">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+                    复制
+                  </button>
+                </div>
+                <pre class="code" id="code-provider"></pre>
+                <div class="card-body">
+                  <div class="note-line">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 019-9 9 9 0 016.7 3M21 12a9 9 0 01-9 9 9 9 0 01-6.7-3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>
+                    <span>用订阅式后，你在本工具里增删域名 / IP 后无需再碰 Clash——它会按 <span class="mono">interval</span> 自动拉取最新清单，热生效、不打扰。规则改用 <span class="mono">RULE-SET,vpn-rules,vpn-router,no-resolve</span> 引用即可：<span class="mono">behavior: classical</span> 的清单里同时放 <span class="mono">DOMAIN-SUFFIX</span> 与 <span class="mono">IP-CIDR</span>，末尾的 <span class="mono">no-resolve</span> 只对清单内的 IP 规则生效（域名不受影响）。注意本步与步骤②的内联规则二选一，不要同时叠加。</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- DNS 命门提示 -->
+        <div class="banner warn" data-od-id="clash-dns">
+          <svg class="bicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+          <div>
+            <div class="bt">DNS 是整条链路的命门</div>
+            <p>本工具 mihomo 已开 <span class="mono">dns.respect-rules + sniffer</span>，目标以域名（而非预解析 IP）交给容器 SOCKS5；你的 Clash 侧规则务必带 <span class="mono">no-resolve</span>。两侧任一漏配都会让内网域名解析失败。每条通道上线时，请实测对应内网域名能真正打开，再对外承诺可用。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const sys = window.VPN.system;
+    const chs = window.VPN.channels;
+
+    // 顶栏 / 侧栏全局态
+    $("#nav-count").textContent = chs.length;
+    $("#foot-port").textContent = ":" + sys.mihomoPort;
+    $("#flow-mihomo").innerHTML = ":" + sys.mihomoPort + " · 第二跳<br>VPN 选择器";
+    if (!sys.clashLinked) {
+      $("#chip-clash").classList.remove("ok");
+      $("#chip-clash").lastChild.textContent = "Clash 未接入";
+    }
+
+    // 高亮辅助：把 yaml 文本里的注释 / 键 / 串套上色彩 class
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const cmt = (s) => `<span class="cmt">${esc(s)}</span>`;
+    const key = (s) => `<span class="key">${esc(s)}</span>`;
+    const str = (s) => `<span class="str">${esc(s)}</span>`;
+
+    // ① 节点片段（server / port 取自 system）
+    const proxyPlain =
+`- name: vpn-router
+  type: socks5
+  server: 127.0.0.1
+  port: ${sys.mihomoPort}`;
+    $("#code-proxy").innerHTML = [
+      `- ${key("name")}: ${str("vpn-router")}`,
+      `  ${key("type")}: ${str("socks5")}`,
+      `  ${key("server")}: ${str("127.0.0.1")}`,
+      `  ${key("port")}: ${str(String(sys.mihomoPort))}   ${cmt("# 本工具 mihomo mixed-port")}`,
+    ].join("\n");
+
+    // ② 规则片段：聚合所有通道 enabled 的域名 + IP/网段
+    //    域名   → DOMAIN-SUFFIX,<pattern>,vpn-router,no-resolve
+    //    IP/网段 → IP-CIDR,<cidr>,vpn-router,no-resolve（no-resolve 是命门：按目的 IP 直接命中、不在本地解析）
+    const patterns = [];
+    chs.forEach((c) => c.domains.forEach((d) => {
+      if (d.enabled) {
+        // mihomo 的 +. 前缀等价于 DOMAIN-SUFFIX，这里规整成裸后缀供 Clash 规则使用
+        const p = d.pattern.replace(/^\+\./, "").replace(/^\*\./, "");
+        if (!patterns.includes(p)) patterns.push(p);
+      }
+    }));
+    const cidrs = [];
+    chs.forEach((c) => (c.ips || []).forEach((d) => {
+      if (d.enabled && !cidrs.includes(d.pattern)) cidrs.push(d.pattern);
+    }));
+    $("#rules-count").textContent = patterns.length + cidrs.length;
+    const rulesPlain = [
+      ...patterns.map((p) => `- DOMAIN-SUFFIX,${p},vpn-router,no-resolve`),
+      ...cidrs.map((p) => `- IP-CIDR,${p},vpn-router,no-resolve`),
+    ].join("\n");
+    $("#code-rules").innerHTML = [
+      ...patterns.map((p) => `- ${key("DOMAIN-SUFFIX")},${esc(p)},${str("vpn-router")},${esc("no-resolve")}`),
+      ...cidrs.map((p) => `- ${key("IP-CIDR")},${esc(p)},${str("vpn-router")},${esc("no-resolve")}`),
+    ].join("\n");
+
+    // ③ rule-provider 订阅片段（url 用 uiPort）
+    //    一份 classical 清单同时容纳域名(DOMAIN-SUFFIX) + IP(IP-CIDR)，保持「只订阅 1 份」
+    const providerUrl = `http://127.0.0.1:${sys.uiPort}/clash/vpn-rules.yaml`;
+    const providerPlain =
+`rule-providers:
+  vpn-rules:
+    type: http
+    behavior: classical
+    format: yaml
+    url: ${providerUrl}
+    interval: 60
+    path: ./providers/vpn-rules.yaml
+
+# 规则里这样引用（末尾 no-resolve 对清单内的 IP-CIDR 生效，域名不受影响）：
+- RULE-SET,vpn-rules,vpn-router,no-resolve`;
+    $("#code-provider").innerHTML = [
+      `${key("rule-providers")}:`,
+      `  ${key("vpn-rules")}:`,
+      `    ${key("type")}: ${str("http")}`,
+      `    ${key("behavior")}: ${str("classical")}   ${cmt("# classical：一份清单同时放域名 + IP")}`,
+      `    ${key("format")}: ${str("yaml")}`,
+      `    ${key("url")}: ${str(providerUrl)}   ${cmt("# 后端对外暴露的 /clash/vpn-rules.yaml")}`,
+      `    ${key("interval")}: ${str("60")}   ${cmt("# 示例：60s 自动同步，可按需调大如 3600")}`,
+      `    ${key("path")}: ${str("./providers/vpn-rules.yaml")}`,
+      ``,
+      `${cmt("# 规则里这样引用（末尾 no-resolve 对清单内的 IP-CIDR 生效，域名不受影响）：")}`,
+      `- ${key("RULE-SET")},${esc("vpn-rules")},${str("vpn-router")},${esc("no-resolve")}`,
+    ].join("\n");
+
+    // 复制按钮：共享 copyText(text, label)
+    $("#copy-proxy").addEventListener("click", () => copyText(proxyPlain, "已复制片段"));
+    $("#copy-rules").addEventListener("click", () => copyText(rulesPlain, "已复制片段"));
+    $("#copy-provider").addEventListener("click", () => copyText(providerPlain, "已复制片段"));
+  </script>
+</body>
+</html>

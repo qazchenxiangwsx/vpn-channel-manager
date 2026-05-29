@@ -1,106 +1,236 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VPN 通道管理器 (demo)</title>
-<style>
-  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e6e8ec; --mut:#8b93a1; --ok:#37c871; --warn:#e0a23b; --bad:#e35d6a; --acc:#5b8cff; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
-  header h1 { font-size:16px; margin:0; font-weight:600; }
-  header .tag { font-size:12px; color:var(--mut); }
-  header button { margin-left:auto; }
-  main { max-width:1080px; margin:0 auto; padding:24px; }
-  button { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:7px 12px; cursor:pointer; font-size:13px; }
-  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
-  button.danger { background:transparent; border:1px solid var(--bad); color:var(--bad); }
-  input, select { background:#0c0e13; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:7px 9px; font-size:13px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .badge { font-size:12px; padding:2px 9px; border-radius:20px; border:1px solid var(--line); }
-  .badge.ok{ color:var(--ok); border-color:var(--ok);} .badge.run{ color:var(--warn); border-color:var(--warn);} .badge.bad{ color:var(--bad); border-color:var(--bad);}
-  .mut { color:var(--mut); }
-  .doms { margin-top:8px; }
-  .dom { display:inline-block; font-size:12px; background:#0c0e13; border:1px solid var(--line); border-radius:6px; padding:2px 8px; margin:2px 4px 2px 0; }
-  iframe { width:100%; height:520px; border:1px solid var(--line); border-radius:10px; margin-top:10px; background:#fff; }
-  pre { white-space:pre-wrap; background:#0c0e13; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:12px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
-  label { font-size:12px; color:var(--mut); display:block; margin-bottom:4px; }
-  h3 { margin:0 0 12px; font-size:14px; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>通道总览 · VPN 通道管理器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
 </head>
-<body>
-<header>
-  <h1>VPN 通道管理器</h1><span class="tag">demo · 全 Docker · 端口高位随机</span>
-  <button class="ghost" onclick="showSnippet()">Clash 配置</button>
-</header>
-<main>
-  <div class="card">
-    <h3>＋ 新建通道</h3>
-    <div class="grid">
-      <div><label>客户名</label><input id="f-name" placeholder="客户A"></div>
-      <div><label>类型</label><select id="f-type"><option value="easyconnect">EasyConnect</option><option value="atrust">aTrust</option></select></div>
-      <div><label>EC 版本</label><input id="f-ver" value="7.6.3"></div>
-      <div><label>VPN 网关地址</label><input id="f-server" placeholder="https://vpn.acme.com"></div>
-      <div><label>账号(选填)</label><input id="f-user" placeholder="登录页里手动输也行"></div>
-      <div><label>内网探测网址</label><input id="f-probe" placeholder="http://oa.acme.内网/"></div>
+<body data-page="channels">
+  <div class="app">
+    <!-- ════ 侧栏（所有屏一致） ════ -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5l8-3z"/></svg>
+        </span>
+        <span class="logo-text">VPN 通道管理器<small>tunnel manager</small></span>
+      </div>
+      <nav class="sidebar-nav">
+        <span class="nav-label">管理</span>
+        <a class="nav-item" data-nav="channels" href="index.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+          通道总览 <span class="count" id="nav-count">—</span>
+        </a>
+        <a class="nav-item" data-nav="monitor" href="monitor.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+          流量监控
+        </a>
+        <a class="nav-item" data-nav="clash" href="clash-config.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 6H15M6 8.5V14a3.5 3.5 0 003.5 3.5H15"/></svg>
+          Clash 接入
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sys-chip ok" style="width:100%; justify-content:flex-start;">
+          <span class="dot"></span>
+          <span>mihomo 运行中</span>
+          <span class="k spacer" id="foot-port">:7899</span>
+        </div>
+        <p class="t-xs muted" style="margin-top:10px; padding:0 6px; line-height:1.5;">单机自用 · 全部监听 <span class="mono">127.0.0.1</span></p>
+      </div>
+    </aside>
+
+    <!-- ════ 主区 ════ -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" aria-label="菜单">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1>通道总览</h1>
+        <span class="spacer"></span>
+        <span class="sys-chip ok hide-mobile" id="chip-clash"><span class="dot"></span>Clash 已接入</span>
+        <a class="btn btn-primary" href="new-channel.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          新建通道
+        </a>
+      </header>
+
+      <div class="content stack-6">
+        <!-- DNS 命门提示 -->
+        <div class="banner info" data-od-id="dns-note">
+          <svg class="bicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+          <div>
+            <div class="bt">内网域名在 VPN 侧解析</div>
+            <p>你的 Clash 对客户域名规则带 <span class="mono">no-resolve</span> 透传，本工具 mihomo 开 <span class="mono">respect-rules + sniffer</span>，由 EC / aTrust 隧道侧解析——这是整条链路最易翻车处，每条通道上线务必实测内网域名能打开。</p>
+          </div>
+        </div>
+
+        <!-- 概览统计 -->
+        <div class="grid-4" id="stats" data-od-id="overview">
+          <div class="stat-tile">
+            <div class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 5-9 5-9-5 9-5z"/></svg>通道总数</div>
+            <div class="stat-num" id="s-total">—</div>
+            <div class="stat-foot">每条 = 一个客户 VPN 容器</div>
+          </div>
+          <div class="stat-tile ok">
+            <div class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6L9 17l-5-5"/></svg>已连接</div>
+            <div class="stat-num" id="s-ok">—</div>
+            <div class="stat-foot">SOCKS5 探活通过</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>待登录</div>
+            <div class="stat-num" id="s-wait">—</div>
+            <div class="stat-foot">容器已起、需过登录</div>
+          </div>
+          <div class="stat-tile accent">
+            <div class="stat-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>分流规则</div>
+            <div class="stat-num" id="s-dom">—</div>
+            <div class="stat-foot">域名 + IP，命中即走对应通道</div>
+          </div>
+        </div>
+
+        <!-- 通道列表 -->
+        <div data-od-id="channel-list-section">
+          <div class="row-between" style="margin-bottom:16px;">
+            <h2>通道</h2>
+            <span class="t-sm muted">每 8 秒自动刷新状态 · 共 <span class="num" id="ch-count">—</span> 条</span>
+          </div>
+          <div class="grid-2" id="channel-list"></div>
+        </div>
+      </div>
     </div>
-    <div class="row" style="margin-top:12px"><button onclick="createCh()">创建并启动容器</button><span id="create-msg" class="mut"></span></div>
   </div>
 
-  <div id="list"></div>
-</main>
-
-<script>
-const $ = s => document.querySelector(s);
-async function api(m, u, b){ const r = await fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}); return r.headers.get('content-type')?.includes('json')?r.json():r.text(); }
-
-function badge(s){ if(s==='logged_in')return '<span class="badge ok">🟢 已连接</span>'; if(s==='error')return '<span class="badge bad">⚠ 出错</span>'; if(s==='stopped')return '<span class="badge bad">停止</span>'; return '<span class="badge run">🟡 待登录</span>'; }
-
-async function load(){
-  const chs = await api('GET','/api/channels');
-  $('#list').innerHTML = chs.length ? '' : '<p class="mut">还没有通道,上面新建一个。</p>';
-  for(const c of chs){
-    const el = document.createElement('div'); el.className='card';
-    el.innerHTML = `
-      <div class="row">
-        <b>${c.name}</b> <span class="mut">${c.vpn_type}${c.ec_ver?(' '+c.ec_ver):''} · id ${c.id}</span>
-        ${badge(c.status)}
-        <span style="margin-left:auto"></span>
-        <button class="ghost" onclick="doLogin('${c.id}')">登录</button>
-        <button class="ghost" onclick="checkStatus('${c.id}',this)">检测连通</button>
-        <button class="danger" onclick="del('${c.id}')">删除</button>
+  <!-- 删除确认 -->
+  <div class="overlay" id="del-modal">
+    <div class="modal">
+      <div class="card-head"><h3>删除通道</h3><button class="icon-btn" data-close="del-modal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+      <div class="card-body stack-4">
+        <p class="muted">将停止并删除容器 <span class="mono" id="del-name"></span>，其 <span class="mono">/root</span> 卷与登录态一并移除，且会从 mihomo 与 Clash 订阅中摘除其域名 / IP 规则（热加载、不断现有连接）。此操作不可撤销。</p>
+        <div class="banner warn">
+          <svg class="bicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+          <p style="color:inherit; margin:0;">删除后重建会用同一 MAC / 卷 / hostname，但深信服仍可能要求重新过验证码。</p>
+        </div>
       </div>
-      <div class="row" style="margin-top:10px">
-        <input placeholder="绑定域名,如 crm-a.com" id="dom-${c.id}" style="flex:1">
-        <button onclick="bind('${c.id}')">绑定 → 走这条通道</button>
+      <div class="card-foot" style="justify-content:flex-end;">
+        <button class="btn btn-secondary" data-close="del-modal">取消</button>
+        <button class="btn btn-danger" id="del-confirm">确认删除</button>
       </div>
-      <div class="doms">${(c.domains||[]).map(d=>`<span class="dom">${d.pattern}</span>`).join('')||'<span class="mut">未绑定域名</span>'}</div>
-      <div id="vnc-${c.id}"></div>`;
-    $('#list').appendChild(el);
-  }
-}
+    </div>
+  </div>
 
-async function createCh(){
-  $('#create-msg').textContent='创建中(首次会拉取镜像,稍等)...';
-  const r = await api('POST','/api/channels',{
-    name:$('#f-name').value, vpn_type:$('#f-type').value, ec_ver:$('#f-ver').value,
-    server:$('#f-server').value, username:$('#f-user').value, probe_url:$('#f-probe').value
-  });
-  $('#create-msg').textContent = r.error ? ('失败: '+r.error) : '已创建,点该通道的“登录”完成验证';
-  load();
-}
-async function doLogin(id){
-  const r = await api('GET',`/api/channels/${id}/login`);
-  if(r.url) $('#vnc-'+id).innerHTML = `<div class="mut" style="margin-top:8px">在下面窗口完成账号/短信/扫码登录(和你平时登这家 VPN 一样):</div><iframe src="${r.url}"></iframe>`;
-}
-async function checkStatus(id,btn){ btn.textContent='检测中...'; const r=await api('GET',`/api/channels/${id}/status`); btn.textContent='检测连通'; load(); }
-async function bind(id){ const p=$('#dom-'+id).value.trim(); if(!p)return; await api('POST',`/api/channels/${id}/domains`,{pattern:p}); load(); }
-async function del(id){ if(confirm('删除这个通道?')){ await api('DELETE',`/api/channels/${id}`); load(); } }
-async function showSnippet(){ const t = await api('GET','/api/clash-snippet'); alert(t); }
-load(); setInterval(load, 8000);
-</script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const chs = window.VPN.channels;
+
+    // 概览统计
+    const total = chs.length;
+    const ok = chs.filter(c => c.status === "logged_in").length;
+    const wait = chs.filter(c => c.status === "running" || c.status === "starting").length;
+    const ruleCount = (c) => c.domains.length + (c.ips ? c.ips.length : 0);
+    const dom = chs.reduce((n, c) => n + ruleCount(c), 0);
+    $("#s-total").textContent = total;
+    $("#s-ok").textContent = ok;
+    $("#s-wait").textContent = wait;
+    $("#s-dom").textContent = dom;
+    $("#ch-count").textContent = total;
+    $("#nav-count").textContent = total;
+    $("#foot-port").textContent = ":" + window.VPN.system.mihomoPort;
+    if (!window.VPN.system.clashLinked) $("#chip-clash").classList.remove("ok"), $("#chip-clash").lastChild.textContent = "Clash 未接入";
+
+    // 通道卡片
+    function actionsFor(c) {
+      const login = c.status === "logged_in"
+        ? `<a class="btn btn-sm btn-secondary" href="channel.html?id=${c.id}#login">重新登录</a>`
+        : `<a class="btn btn-sm btn-primary" href="channel.html?id=${c.id}#login">登录</a>`;
+      const probe = c.status === "stopped"
+        ? `<button class="btn btn-sm btn-secondary" disabled>已停止</button>`
+        : `<button class="btn btn-sm btn-secondary" onclick="probe('${c.id}', this)">检测连通</button>`;
+      return `${login}${probe}
+        <a class="btn btn-sm btn-ghost" href="channel.html?id=${c.id}">详情</a>
+        <button class="btn btn-sm btn-danger spacer" onclick="askDel('${c.id}')">删除</button>`;
+    }
+    function cardHTML(c) {
+      const k = kindMeta(c.vpn_type);
+      const lat = c.latency_ms != null ? `${c.latency_ms} ms` : "—";
+      const tags = [];
+      c.domains.forEach(d => tags.push(`<span class="tag mono">${d.pattern}${d.enabled ? "" : " · 停用"}</span>`));
+      (c.ips || []).forEach(d => tags.push(`<span class="tag mono ip">${d.pattern}${d.enabled ? "" : " · 停用"}</span>`));
+      const doms = tags.length ? tags.join("") : `<span class="t-sm muted">未绑定规则</span>`;
+      return `<article class="ch-card" data-od-id="ch-${c.id}">
+        <div class="ch-top">
+          <div class="grow">
+            <div class="ch-name">${c.name}</div>
+            <div class="ch-meta">${k.label}${c.ec_ver ? " " + c.ec_ver : ""} · id ${c.id} · ${c.server.replace("https://","")}</div>
+          </div>
+          ${badgeHTML(c.status)}
+        </div>
+        <div class="ch-grid">
+          <div class="kv"><div class="k">SOCKS5 出口</div><div class="v">:${c.socks_port}</div></div>
+          <div class="kv"><div class="k">隧道延迟</div><div class="v">${lat}</div></div>
+          <div class="kv"><div class="k">运行时长</div><div class="v">${c.uptime}</div></div>
+        </div>
+        <div class="ch-domains">${doms}</div>
+        <form class="row" style="margin-bottom:14px; gap:8px;" onsubmit="return bindRule('${c.id}', this)">
+          <input class="input" name="pat" placeholder="绑定域名或 IP/网段，可多个" style="flex:1;" />
+          <button class="btn btn-sm btn-secondary" type="submit">绑定 → 走这条</button>
+        </form>
+        <div class="ch-actions">${actionsFor(c)}</div>
+      </article>`;
+    }
+    $("#channel-list").innerHTML = chs.map(cardHTML).join("");
+
+    // 交互：检测连通（模拟后端 SOCKS5 探活）
+    window.probe = function (id, btn) {
+      const c = chs.find(x => x.id === id);
+      btn.textContent = "检测中…"; btn.disabled = true;
+      setTimeout(() => {
+        btn.disabled = false; btn.textContent = "检测连通";
+        if (c.status === "running") { c.status = "logged_in"; c.latency_ms = 39; refresh(); toast("隧道真通 · 39 ms · 已登录"); }
+        else if (c.status === "logged_in") toast(`隧道真通 · ${c.latency_ms} ms`);
+        else toast("探活失败：容器未运行", false);
+      }, 1100);
+    };
+    // 快绑：一次可粘多条，自动识别 IP/网段（走 IP-CIDR）与域名（走 DOMAIN-SUFFIX）
+    window.bindRule = function (id, form) {
+      const c = chs.find(x => x.id === id);
+      c.ips = c.ips || [];
+      let dom = 0, ip = 0, bad = 0, dup = 0;
+      parseTokens(form.pat.value).forEach(t => {
+        if (looksLikeIp(t)) {
+          const v = normIp(t);
+          if (!v) { bad++; return; }
+          if (c.ips.some(x => x.pattern === v)) { dup++; return; }
+          c.ips.push({ pattern: v, enabled: true }); ip++;
+        } else if (c.domains.some(x => x.pattern === t)) { dup++; }
+        else { c.domains.push({ pattern: t, enabled: true }); dom++; }
+      });
+      form.pat.value = ""; refresh();
+      if (dom || ip) toast(`已绑定 ${dom} 域名 / ${ip} IP → mihomo 热加载生效，不断现有连接`);
+      else if (bad) toast("IP 格式无法识别，请检查写法", false);
+      else if (dup) toast("这些规则已绑定", false);
+      return false;
+    };
+    let pendingDel = null;
+    window.askDel = function (id) { pendingDel = id; $("#del-name").textContent = "vpn-" + id; openOverlay("del-modal"); };
+    $("#del-confirm").addEventListener("click", () => {
+      const i = chs.findIndex(x => x.id === pendingDel);
+      if (i > -1) { const n = chs[i].name; chs.splice(i, 1); closeOverlay("del-modal"); refresh(); toast(`已删除 ${n}`); }
+    });
+    function refresh() {
+      $("#channel-list").innerHTML = chs.map(cardHTML).join("");
+      $("#s-total").textContent = chs.length;
+      $("#s-ok").textContent = chs.filter(c => c.status === "logged_in").length;
+      $("#s-wait").textContent = chs.filter(c => c.status === "running" || c.status === "starting").length;
+      $("#s-dom").textContent = chs.reduce((n, c) => n + ruleCount(c), 0);
+      $("#ch-count").textContent = chs.length;
+      $("#nav-count").textContent = chs.length;
+    }
+  </script>
 </body>
 </html>
