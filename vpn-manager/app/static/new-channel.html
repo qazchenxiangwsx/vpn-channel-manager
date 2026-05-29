@@ -215,6 +215,7 @@
                     <div class="field col-span" id="account-field">
                       <label>登录账号</label>
                       <input class="input mono" id="f-user" placeholder="如 ops_acme" autocomplete="off" />
+                      <input class="input" id="f-pass" type="password" placeholder="VPN 密码（账号密码方式必填）" />
                       <span class="help">仅账号密码方式注入 CLI_OPTS；密码在后端 Fernet 加密落库，不回显</span>
                     </div>
 
@@ -474,14 +475,10 @@
     </div>
   </div>
 
-  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/app.js"></script>
   <script>
-    // ── 派生新通道的稳定标识：序号沿用现有通道数 ──
-    const seq = window.VPN.channels.length;        // 现有 4 条 → 新通道序号 4
-    const socksPort = 10800 + seq;                 // :10804
-    const novncPort = 18080 + seq;                 // :18084
-    const atrustPort = 54600 + seq;                // :54604 → 容器内 54631（仅 aTrust）
+    // ── 派生新通道的稳定标识（仅 docker-run 预览展示用；真实端口/MAC/卷由后端创建时分配落库）──
     function randMac() {
       const h = () => Math.floor(Math.random() * 256).toString(16).padStart(2, "0");
       return "02:" + [h(), h(), h(), h(), h()].join(":");
@@ -490,25 +487,25 @@
     const chanId = Math.random().toString(16).slice(2, 10);
     const volName = "vpn-" + chanId + "-root";
 
-    // 侧栏/底栏沿用全局态
-    $("#nav-count").textContent = window.VPN.channels.length;
-    $("#foot-port").textContent = ":" + window.VPN.system.mihomoPort;
+    // 侧栏/底栏：异步取真实系统信息与通道数
+    api.system().then(s => { $("#foot-port").textContent = ":" + s.mihomo_port; });
+    api.channels().then(cs => { $("#nav-count").textContent = cs.length; });
 
     // ── 状态：表单模型 ──
     const model = {
       name: "", type: "easyconnect", ecver: "7.6.3",
-      login: "password", server: "", user: "", probe: "",
+      login: "password", server: "", user: "", pass: "", probe: "",
       status: "created", latency: null,
     };
 
-    // 端口/标识写入摘要（一次性）
-    $("#alloc-socks").textContent = ":" + socksPort;
-    $("#alloc-novnc").textContent = ":" + novncPort;
-    $("#sum-socks").textContent = ":" + socksPort;
-    $("#sum-novnc").textContent = ":" + novncPort;
+    // 端口/标识写入摘要（一次性）；SOCKS5/noVNC 为容器内端口，host 侧由后端创建时自动分配
+    $("#alloc-socks").textContent = "容器内 1080";
+    $("#alloc-novnc").textContent = "容器内 8080";
+    $("#sum-socks").textContent = "容器内 1080";
+    $("#sum-novnc").textContent = "容器内 8080";
     $("#sum-mac").textContent = fakeMac;
     $("#sum-vol").textContent = volName;
-    $("#vnc-addr").textContent = "127.0.0.1:" + novncPort;
+    $("#vnc-addr").textContent = "noVNC（host 端口创建时分配）";
 
     const KIND = { easyconnect: "EasyConnect", atrust: "aTrust" };
     const LOGIN = { password: "账号密码", interactive: "交互登录" };
@@ -597,6 +594,7 @@
     $("#f-name").addEventListener("input", e => { model.name = e.target.value.trim(); syncSummary(); });
     $("#f-server").addEventListener("input", e => { model.server = e.target.value.trim(); syncSummary(); });
     $("#f-user").addEventListener("input", e => { model.user = e.target.value.trim(); });
+    $("#f-pass").addEventListener("input", e => { model.pass = e.target.value; });
     $("#f-probe").addEventListener("input", e => { model.probe = e.target.value.trim(); syncSummary(); });
     $("#f-ecver").addEventListener("change", e => { model.ecver = e.target.value; syncSummary(); });
 
@@ -647,13 +645,13 @@
         L.push(`  ${c[0]}# aTrust 必需：放通 route_localnet${c[1]}`);
         L.push(`  ${k[0]}--sysctl${k[1]} net.ipv4.conf.default.route_localnet=1 \\`);
       }
-      L.push(`  ${c[0]}# SOCKS5 出口${c[1]}`);
-      L.push(`  ${k[0]}-p${k[1]} 127.0.0.1:${socksPort}:1080 \\`);
-      L.push(`  ${c[0]}# noVNC${c[1]}`);
-      L.push(`  ${k[0]}-p${k[1]} 127.0.0.1:${novncPort}:8080 \\`);
+      L.push(`  ${c[0]}# SOCKS5 出口（host 端口创建时自动分配）${c[1]}`);
+      L.push(`  ${k[0]}-p${k[1]} 127.0.0.1:<自动分配>:1080 \\`);
+      L.push(`  ${c[0]}# noVNC（host 端口创建时自动分配）${c[1]}`);
+      L.push(`  ${k[0]}-p${k[1]} 127.0.0.1:<自动分配>:8080 \\`);
       if (model.type === "atrust") {
         L.push(`  ${c[0]}# aTrust 客户端端口${c[1]}`);
-        L.push(`  ${k[0]}-p${k[1]} 127.0.0.1:${atrustPort}:54631 \\`);
+        L.push(`  ${k[0]}-p${k[1]} 127.0.0.1:<自动分配>:54631 \\`);
       }
       L.push(`  ${c[0]}# 登录态持久化${c[1]}`);
       L.push(`  ${k[0]}-v${k[1]} ${s[0]}${volName}${s[1]}:/root \\`);
@@ -679,37 +677,50 @@
       box.appendChild(ln);
       box.scrollTop = box.scrollHeight;
     }
-    $("#run-btn").addEventListener("click", () => {
+    $("#run-btn").addEventListener("click", async () => {
       if (started) return;
       started = true;
       const btn = $("#run-btn");
       btn.disabled = true; btn.textContent = "启动中…";
-      $("#run-log").innerHTML = "";
       setRunBadge("starting"); setSumBadge("starting");
-      const lines = [
-        ["$ docker run -d " + image(), ""],
-        ["Created container vpn-" + chanId, "ok"],
-        ["[entrypoint] FAKE_HWADDR=" + fakeMac, ""],
-        ["[net] 建 TUN /dev/net/tun · NET_ADMIN 生效", ""],
-        ["[svc] danted 监听 127.0.0.1:" + socksPort + " (SOCKS5)", ""],
-        ["[svc] noVNC 监听 127.0.0.1:" + novncPort, ""],
-        ["[warn] 端口监听 ≠ 隧道已通，仍需登录后探活", "warn"],
-        ["status → running（容器起来，等待登录）", "ok"],
-      ];
-      let i = 0;
-      const timer = setInterval(() => {
-        appendLog(lines[i][0], lines[i][1]);
-        i++;
-        if (i >= lines.length) {
-          clearInterval(timer);
-          setRunBadge("running"); setSumBadge("running");
-          btn.textContent = "已起容器"; btn.disabled = true;
-          $("#go-3").disabled = false;
-          toast("容器已起 · 状态 running · 进入登录");
-        }
-      }, 480);
+      $("#run-log").innerHTML = "";
+      appendLog("$ POST /api/channels …", "");
+      try {
+        const ch = await api.create({
+          name: model.name, vpn_type: model.type, server: model.server,
+          ec_ver: model.type === "easyconnect" ? model.ecver : "",
+          login_method: model.login, username: model.user,
+          password: model.login === "password" ? model.pass : "",
+          probe_url: model.probe,
+        });
+        window.createdId = ch.id;
+        appendLog("Created container vpn-" + ch.id, "ok");
+        appendLog("status → " + ch.status, "ok");
+        setRunBadge("running"); setSumBadge("running");
+        btn.textContent = "已起容器"; $("#go-3").disabled = false;
+        toast("容器已起 · 进入登录");
+      } catch (e) {
+        started = false; btn.disabled = false; btn.textContent = "重试起容器";
+        setRunBadge("error"); appendLog("起容器失败:" + e.message, "warn");
+        toast("起容器失败:" + e.message, false);
+      }
     });
-    $("#go-3").addEventListener("click", () => gotoStep(3));
+    $("#go-3").addEventListener("click", () => { gotoStep(3); loadVnc(); });
+
+    // ── ③ 登录验证：账密无头跳过；交互登录拉真 noVNC iframe ──
+    async function loadVnc() {
+      if (model.login === "password") return;   // EC + 账密无头注入，无需 noVNC
+      try {
+        const { url } = await api.login(window.createdId);
+        let f = document.getElementById("vnc-frame");
+        if (!f) {
+          f = document.createElement("iframe");
+          f.id = "vnc-frame"; f.style.cssText = "width:100%;height:520px;border:0;border-radius:8px;";
+          $("#login-interactive").prepend(f);
+        }
+        f.src = url;
+      } catch (e) { toast("拉取登录窗失败:" + e.message, false); }
+    }
 
     // ── ③ 仿真登录：获取验证码倒计时 ──
     $("#sms-btn").addEventListener("click", () => {
@@ -730,50 +741,42 @@
         `  ${s[0]}${model.probe || "<内网探测URL>"}${s[1]} \\\n` +
         `  --max-time 5 -o /dev/null -w ${s[0]}"%{http_code} %{time_total}s"${s[1]}`;
     }
-    let probed = false;
-    $("#probe-btn").addEventListener("click", () => {
-      if (probed) return;
+    $("#probe-btn").addEventListener("click", async () => {
       const btn = $("#probe-btn"), spin = $("#probe-spin");
       btn.disabled = true; spin.style.display = "";
-      setTimeout(() => {
-        probed = true;
-        spin.style.display = "none";
-        btn.disabled = false; btn.textContent = "重新探活";
-        const lat = 40 + Math.floor(Math.random() * 28);   // 40–67 ms
-        model.latency = lat;
-        $("#probe-lat").textContent = lat;
-        $("#probe-result").classList.add("show");
-        $("#probe-badge").outerHTML = badgeHTML("logged_in").replace("<span", '<span id="probe-badge"');
-        setSumBadge("logged_in");
-        $("#go-5").disabled = false;
-        toast("隧道真通 · " + lat + " ms · 已登录");
-      }, 1200);
+      try {
+        const r = await api.status(window.createdId);
+        if (r.connected) {
+          $("#probe-lat").textContent = r.latency_ms ?? "?";
+          $("#probe-result").classList.add("show");
+          $("#probe-badge").outerHTML = badgeHTML("logged_in").replace("<span", '<span id="probe-badge"');
+          setSumBadge("logged_in"); $("#go-5").disabled = false;
+          toast(`隧道真通 · ${r.latency_ms ?? "?"} ms · 已登录`);
+        } else { toast("探活未通过:请确认已在登录窗完成验证", false); }
+      } catch (e) { toast("探活出错:" + e.message, false); }
+      finally { btn.disabled = false; btn.textContent = "重新探活"; spin.style.display = "none"; }
     });
     $("#go-5").addEventListener("click", () => gotoStep(5));
 
-    // ── ⑤ 绑定分流规则 + 完成（自动识别域名/IP，可多条）──
-    const bound = [];
-    $("#bind-form").addEventListener("submit", () => {
-      let dom = 0, ip = 0, bad = 0, dup = 0;
-      parseTokens($("#f-domain").value).forEach(t => {
-        if (looksLikeIp(t)) {
-          const v = normIp(t);
-          if (!v) { bad++; return; }
-          if (bound.some(b => b.pattern === v)) { dup++; return; }
-          bound.push({ pattern: v, ip: true }); ip++;
-        } else if (bound.some(b => b.pattern === t)) { dup++; }
-        else { bound.push({ pattern: t, ip: false }); dom++; }
-      });
-      if (!dom && !ip) { toast(bad ? "IP 格式无法识别，请检查写法" : dup ? "这些规则已绑定" : "请填写域名或 IP", false); return false; }
-      $("#f-domain").value = "";
-      $("#bound-list").innerHTML = bound.map(b => `<span class="tag mono${b.ip ? " ip" : ""}">${b.pattern}</span>`).join("");
-      // 完成小结
-      $("#done-name").textContent = model.name;
-      $("#done-type").textContent = KIND[model.type] + (model.type === "easyconnect" ? " " + model.ecver : "");
-      $("#done-socks").textContent = "127.0.0.1:" + socksPort;
-      $("#done-domain").textContent = `${bound.filter(b => !b.ip).length} 域名 / ${bound.filter(b => b.ip).length} IP`;
-      $("#done-card").style.display = "";
-      toast(`已绑定 ${dom} 域名 / ${ip} IP → mihomo 热加载生效，不断现有连接`);
+    // ── ⑤ 绑定分流规则 + 完成（域名/IP 后端自动识别，可多条）──
+    $("#bind-form").addEventListener("submit", async () => {
+      const toks = parseTokens($("#f-domain").value);
+      if (!toks.length) { toast("请填写域名或 IP", false); return false; }
+      try {
+        const r = await api.addRules(window.createdId, toks);
+        $("#f-domain").value = "";
+        // 用返回的 domains/ips 重绘 bound-list
+        const all = [...r.domains.map(d => ({ pattern: d.pattern, ip: false })),
+                     ...r.ips.map(d => ({ pattern: d.pattern, ip: true }))];
+        $("#bound-list").innerHTML = all.map(b =>
+          `<span class="tag mono${b.ip ? " ip" : ""}">${b.pattern}</span>`).join("");
+        $("#done-name").textContent = model.name;
+        $("#done-type").textContent = KIND[model.type] + (model.type === "easyconnect" ? " " + model.ecver : "");
+        $("#done-socks").textContent = `vpn-${window.createdId}:1080`;
+        $("#done-domain").textContent = `${r.domains.length} 域名 / ${r.ips.length} IP`;
+        $("#done-card").style.display = "";
+        toast(`已绑定 ${r.added.domain} 域名 / ${r.added.ip} IP → 热加载生效`);
+      } catch (e) { toast("绑定出错:" + e.message, false); }
       return false;
     });
 

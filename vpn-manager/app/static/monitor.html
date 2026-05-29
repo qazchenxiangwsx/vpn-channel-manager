@@ -199,36 +199,36 @@
     </div>
   </div>
 
-  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/app.js"></script>
   <script>
-    const SYS = window.VPN.system;
-    const chs = window.VPN.channels;
-    const conns = window.VPN.connections;
+    let chs = [], sys = {}, prevTotals = null, prevTs = null;
+    async function boot() {
+      sys = await api.system();
+      $("#foot-port").textContent = ":" + sys.mihomo_port;
+      $("#ctrl-pill").textContent = "external-controller " + (sys.controller || "?") + " · 只读遥测";
+      await tick();
+      setInterval(tick, 1500);
+    }
+    function nodeName(id) { const i = chs.findIndex(c => c.id === id); return i < 0 ? "DIRECT" : "chan" + String.fromCharCode(65 + i) + "-socks"; }
+    function chanName(id) { const c = chs.find(x => x.id === id); return c ? c.name : "—"; }
 
-    // 侧栏底部端口 + 顶栏 controller（来自真实数据）
-    $("#foot-port").textContent = ":" + SYS.mihomoPort;
-    $("#nav-count").textContent = chs.length;
-    $("#ctrl-pill").textContent = "external-controller " + SYS.controller + " · 只读遥测";
-
-    // ── 通道 id → 节点名 / 通道名 映射（chanA-socks 风格按序号派生） ──
-    const A = "A".charCodeAt(0);
-    const idIndex = {};
-    chs.forEach((c, i) => { idIndex[c.id] = i; });
-    const nodeName = (id) => idIndex[id] != null ? "chan" + String.fromCharCode(A + idIndex[id]) + "-socks" : "DIRECT";
-    const chanName = (id) => { const c = chs.find(x => x.id === id); return c ? c.name : "—"; };
-
-    /* ───────── 实时指标 + spark ───────── */
+    /* ───────── 实时速率序列（由 pushSeries 维护，初值全 0，不再仿真） ───────── */
     const N = 60;                       // 面积图采样点
     const SN = 28;                      // spark 采样点
-    const seed = (n, base, jit) => Array.from({ length: n }, () => Math.max(0, base + (Math.random() - 0.5) * jit));
-    let upSeries = seed(N, 120, 90);
-    let downSeries = seed(N, 640, 360);
-    let connSeries = seed(SN, conns.length + 1, 2);
-    let nodeSeries;
+    let upSeries = Array.from({ length: N }, () => 0);
+    let downSeries = Array.from({ length: N }, () => 0);
+    let connSeries = Array.from({ length: SN }, () => 0);
+    let nodeSeries = Array.from({ length: SN }, () => 0);
+    let liveNodes = 0;
 
-    const liveNodes = chs.filter(c => c.status === "logged_in").length; // 探活真通的节点
-    nodeSeries = Array.from({ length: SN }, () => liveNodes);
+    function pushSeries(up, down, conn) {
+      upSeries.push(up); upSeries.shift();
+      downSeries.push(down); downSeries.shift();
+      connSeries.push(conn); connSeries.shift();
+      liveNodes = chs.filter(c => c.status === "logged_in").length;
+      nodeSeries.push(liveNodes); nodeSeries.shift();
+    }
 
     function drawSpark(id, vals, stroke) {
       const p = $("#" + id + " path");
@@ -267,10 +267,7 @@
 
     function fmtRate(kb) { return kb >= 1024 ? (kb / 1024).toFixed(1) + " MB/s" : Math.round(kb) + " KB/s"; }
 
-    function renderMetrics() {
-      const up = upSeries[upSeries.length - 1];
-      const down = downSeries[downSeries.length - 1];
-      const conn = Math.round(connSeries[connSeries.length - 1]);
+    function renderMetrics(up, down, conn) {
       $("#m-up").textContent = Math.round(up);
       $("#m-down").textContent = Math.round(down);
       $("#m-conn").textContent = conn;
@@ -296,59 +293,82 @@
     function renderLatency() {
       let html = "";
       chs.filter(c => c.status === "logged_in").forEach(c => {
-        html += latRow(nodeName(c.id), c.name + " · :" + c.socks_port, c.latency_ms, true);
+        html += latRow(nodeName(c.id), c.name + " · " + c.socks_endpoint, c.latency_ms, true);
       });
       // DIRECT 兜底直连：非隧道探活，仅表示直连可用，延迟显示“—”
       html += latRow("DIRECT", "兜底直连 · 不经隧道", null, true, "直连可用");
       $("#lat-list").innerHTML = html;
     }
 
-    /* ───────── 实时连接表 ───────── */
+    /* ───────── 实时连接表（mihomo /connections 真实形态） ───────── */
+    function fmtBytes(n) {
+      n = +n || 0;
+      if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+      if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+      return n + " B";
+    }
+    function chainId(chain) {
+      // chains 末项形如 "ch-{id}"；取出 {id} 用于映射通道名/序号
+      return chain && chain.indexOf("ch-") === 0 ? chain.slice(3) : null;
+    }
     function connRow(c) {
-      const direct = c.chain === "—" || c.node === "DIRECT";
+      const meta = c.metadata || {};
+      const chains = c.chains || [];
+      const tail = chains.length ? chains[chains.length - 1] : "";
+      const id = chainId(tail);
+      const direct = !id;   // 末跳非 ch-* 即兜底直连（DIRECT）
+      const host = (meta.host || meta.destinationIP || "—") + (meta.destinationPort ? ":" + meta.destinationPort : "");
       const chainCell = direct
         ? `<div class="chain-cell"><span class="cn muted">直连</span><span class="ce">DIRECT</span></div>`
-        : `<div class="chain-cell"><span class="cn">${chanName(c.chain)}</span><span class="ce">${c.node} → :${exitPort(c.chain)}</span></div>`;
+        : `<div class="chain-cell"><span class="cn">${chanName(id)}</span><span class="ce">${tail} → ${id ? "vpn-" + id + ":1080" : ""}</span></div>`;
       return `<tr class="${direct ? "is-direct" : ""}">
-        <td class="mono">${c.host}</td>
-        <td class="hide-sm"><span class="rule-tag">${c.rule}</span></td>
+        <td class="mono">${host}</td>
+        <td class="hide-sm"><span class="rule-tag">${c.rule || ""}</span></td>
         <td>${chainCell}</td>
-        <td class="r num-col">${c.up}</td>
-        <td class="r num-col">${c.down}</td>
-        <td class="r num-col hide-sm">${c.dl} ms</td>
+        <td class="r num-col">${fmtBytes(c.upload)}</td>
+        <td class="r num-col">${fmtBytes(c.download)}</td>
+        <td class="r num-col hide-sm">—</td>
       </tr>`;
     }
-    function exitPort(id) { const c = chs.find(x => x.id === id); return c ? c.socks_port : ""; }
-    function renderConns() {
-      $("#conn-body").innerHTML = conns.map(connRow).join("");
-      $("#conn-count").textContent = conns.length;
+    function renderConns(list) {
+      $("#conn-body").innerHTML = list.map(connRow).join("");
+      $("#conn-count").textContent = list.length;
     }
 
-    /* ───────── tick：制造“实时”感（纯演示） ───────── */
-    function nextVal(prev, base, jit, floor = 0) {
-      let v = prev + (Math.random() - 0.5) * jit;
-      v += (base - v) * 0.12;            // 轻微回归基线，避免漂走
-      return Math.max(floor, v);
-    }
-    function tick() {
-      upSeries.push(nextVal(upSeries[upSeries.length - 1], 120, 70)); upSeries.shift();
-      downSeries.push(nextVal(downSeries[downSeries.length - 1], 640, 280)); downSeries.shift();
-      connSeries.push(nextVal(connSeries[connSeries.length - 1], conns.length + 1, 1.6, 1)); connSeries.shift();
-
-      renderMetrics();
+    /* ───────── 全量重绘（spark + 面积图） ───────── */
+    function drawAll() {
       drawSpark("sp-up", upSeries.slice(-SN), "var(--accent)");
       drawSpark("sp-down", downSeries.slice(-SN), "var(--success)");
       drawSpark("sp-conn", connSeries, "var(--muted)");
-      drawSpark("sp-nodes", nodeSeries.map(v => v + Math.random() * 0.001), "var(--muted)");
+      drawSpark("sp-nodes", nodeSeries, "var(--muted)");
       drawFlow();
     }
 
-    // 初次渲染
+    /* ───────── tick：拉真实遥测，速率=总量差分/时间差 ───────── */
+    async function tick() {
+      let data;
+      try { [chs, data] = await Promise.all([api.channels(), api.connections()]); }
+      catch (e) { return; }
+      $("#nav-count").textContent = chs.length;
+      // 速率 = 总量差分 / 时间差
+      const now = Date.now();
+      let up = 0, down = 0;
+      if (prevTotals && prevTs) {
+        const dt = (now - prevTs) / 1000 || 1;
+        up = Math.max(0, (data.uploadTotal - prevTotals.up) / dt / 1024);     // KB/s
+        down = Math.max(0, (data.downloadTotal - prevTotals.down) / dt / 1024);
+      }
+      prevTotals = { up: data.uploadTotal, down: data.downloadTotal }; prevTs = now;
+      pushSeries(up, down, (data.connections || []).length);
+      renderMetrics(up, down, (data.connections || []).length);
+      renderConns(data.connections || []);
+      renderLatency();
+      drawAll();
+    }
+
+    // 初次渲染（静态部分）+ 启动轮询
     drawGrid();
-    renderLatency();
-    renderConns();
-    tick();
-    setInterval(tick, 1500);
+    boot();
   </script>
 </body>
 </html>

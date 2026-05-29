@@ -394,40 +394,59 @@
     </div>
   </div>
 
-  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/app.js"></script>
   <script>
-    // ── 选通道：?id= 命中 channels，缺省取第一个 ──
+    // ── 选通道：?id= 命中 channels，缺省取第一个；数据来自真实后端 ──
     const params = new URLSearchParams(location.search);
     const wantId = params.get("id");
-    const ch = window.VPN.channels.find(c => c.id === wantId) || window.VPN.channels[0];
+    let ch, sys;
+    let k, kindLabel, containerId, hostName, methodLabel;
+    let pwShown = false;
 
-    $("#nav-count").textContent = window.VPN.channels.length;
-    $("#foot-port").textContent = ":" + window.VPN.system.mihomoPort;
+    async function boot() {
+      const list = await api.channels();
+      ch = list.find(c => c.id === wantId) || list[0];
+      sys = await api.system();
+      if (!ch) { toast("通道不存在", false); return; }
 
-    const k = kindMeta(ch.vpn_type);
-    const kindLabel = k.label + (ch.ec_ver ? " " + ch.ec_ver : "");
-    const containerId = "vpn-" + ch.id;
-    const hostName = ch.server.replace("https://", "").replace("http://", "");
+      $("#nav-count").textContent = list.length;
+      $("#foot-port").textContent = ":" + sys.mihomo_port;
 
-    // ── 顶栏 / 面包屑 / 标识 ──
-    $("#top-title").textContent = ch.name;
-    $("#top-badge").innerHTML = badgeHTML(ch.status);
-    $("#crumb-name").textContent = ch.name;
-    $("#ch-title").textContent = ch.name;
-    $("#ch-kind").innerHTML = `<span class="kind-tag ${k.cls}">${k.label}</span>`;
-    $("#ch-ident").textContent = `id ${ch.id} · ${hostName}`;
+      k = kindMeta(ch.vpn_type);
+      kindLabel = k.label + (ch.ec_ver ? " " + ch.ec_ver : "");
+      containerId = "vpn-" + ch.id;
+      hostName = ch.server.replace("https://", "").replace("http://", "");
+      methodLabel = ch.login_method === "password" ? "账号密码（CLI 无头注入）" : "交互登录（noVNC）";
+
+      renderAll();
+    }
+
+    function renderAll() {
+      // ── 顶栏 / 面包屑 / 标识 ──
+      $("#top-title").textContent = ch.name;
+      $("#top-badge").innerHTML = badgeHTML(ch.status);
+      $("#crumb-name").textContent = ch.name;
+      $("#ch-title").textContent = ch.name;
+      $("#ch-kind").innerHTML = `<span class="kind-tag ${k.cls}">${k.label}</span>`;
+      $("#ch-ident").textContent = `id ${ch.id} · ${hostName}`;
+
+      $("#cfg-kind").textContent = kindLabel;
+      renderConfig();
+      renderHealth();
+      renderLoginPanel();
+      renderRuleTables();
+      $("#del-name").textContent = containerId;
+      syncStatus();
+    }
 
     // ── 概览：容器配置 kv-list ──
-    $("#cfg-kind").textContent = kindLabel;
-    const methodLabel = ch.login_method === "password" ? "账号密码（CLI 无头注入）" : "交互登录（noVNC）";
-    let pwShown = false;
     function rowsConfig() {
       return [
         ["VPN 网关", `<span class="copyable"><span>${hostName}</span></span>`],
         ["类型 / 版本", kindLabel],
         ["登录方式", methodLabel],
-        ["SOCKS5 出口", `:${ch.socks_port}<span class="note">仅 Docker 内网暴露，本机绑 127.0.0.1</span>`],
+        ["SOCKS5 出口", `${ch.socks_endpoint}<span class="note">仅 Docker 内网暴露，本机绑 127.0.0.1</span>`],
         ["noVNC 端口", `:${ch.novnc_port}<span class="note">交互登录用，绑 127.0.0.1</span>`],
         ["fake_hwaddr", `${ch.mac}<span class="note">建通道时生成、落库；重建复用以降低重绑</span>`],
         ["卷名", `${ch.volume_name}<span class="note">挂载到 /root，持久化登录态</span>`],
@@ -441,7 +460,6 @@
       const t = $("#pw-toggle"); if (t) t.addEventListener("click", () => { pwShown = !pwShown; renderConfig(); });
       const cc = $("#copy-cid"); if (cc) cc.addEventListener("click", () => copyText(containerId, "已复制容器 id"));
     }
-    renderConfig();
 
     // ── 健康卡片 ──
     function renderHealth() {
@@ -451,51 +469,36 @@
       bar.className = "lat-bar" + (cls ? " " + cls : "");
       bar.querySelector("i").style.width = lat != null ? Math.min(100, Math.round(lat / 1.8)) + "%" : "0";
       $("#h-status").innerHTML = badgeHTML(ch.status);
-      $("#h-uptime").textContent = ch.uptime;
+      $("#h-uptime").textContent = ch.uptime != null ? ch.uptime : "—";
     }
-    renderHealth();
 
     function setLastProbe() { $("#h-last").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
 
     // ── 登录面板填充 ──
-    $("#vnc-addr").textContent = `${window.VPN.system.boundIp}:${ch.novnc_port}`;
-    $("#portal-title").textContent = k.label === "aTrust" ? "aTrust 信任接入" : "EasyConnect 企业接入";
-    $("#portal-host").textContent = hostName;
-    $("#li-method").textContent = methodLabel;
-    $("#li-port").innerHTML = `<span class="mono">:${ch.novnc_port}</span>`;
-    $("#li-probe").innerHTML = `<span class="mono">${ch.probe_url}</span>`;
-
-    // 登录页内部 tab（账号 / 短信 / 扫码）
-    $$("#portal .portal-tabs button").forEach(btn => btn.addEventListener("click", () => {
-      $$("#portal .portal-tabs button").forEach(b => b.classList.toggle("on", b === btn));
-      $$("#portal [data-pview]").forEach(v => v.hidden = v.dataset.pview !== btn.dataset.ptab);
-    }));
-    const smsBtn = $("#sms-send");
-    if (smsBtn) smsBtn.addEventListener("click", () => {
-      let n = 60; smsBtn.disabled = true;
-      smsBtn.textContent = `${n}s 后重发`;
-      const t = setInterval(() => { n--; smsBtn.textContent = n > 0 ? `${n}s 后重发` : ""; if (n <= 0) { clearInterval(t); smsBtn.disabled = false; smsBtn.textContent = "获取验证码"; } }, 1000);
-      toast("验证码已下发到登录页（演示）");
-    });
-
-    // ── 共享动作：检测连通（后端 SOCKS5 探活模拟） ──
-    function probe(btn, after) {
-      // 纯图标按钮（含 <svg> 或无文本）只切 disabled 态，避免文案覆盖把图标清掉
-      const isIcon = btn && (btn.querySelector("svg") || !btn.textContent.trim());
-      const orig = btn && !isIcon ? btn.textContent : null;
-      if (btn) { if (!isIcon) btn.textContent = "检测中…"; btn.disabled = true; }
-      setTimeout(() => {
-        if (btn) { btn.disabled = false; if (!isIcon) btn.textContent = orig; }
-        if (ch.status === "stopped") { toast("探活失败：容器未运行", false); return; }
-        if (ch.status === "running" || ch.status === "starting") {
-          ch.status = "logged_in"; ch.latency_ms = ch.latency_ms || 39;
-        }
-        if (ch.latency_ms == null) ch.latency_ms = 41;
-        setLastProbe(); syncStatus(); renderHealth();
-        toast(`隧道真通 · ${ch.latency_ms} ms · SOCKS5 探活通过`);
-        if (after) after();
-      }, 1100);
+    function renderLoginPanel() {
+      $("#vnc-addr").textContent = `${sys.bound_ip}:${ch.novnc_port}`;
+      $("#portal-title").textContent = k.label === "aTrust" ? "aTrust 信任接入" : "EasyConnect 企业接入";
+      $("#portal-host").textContent = hostName;
+      $("#li-method").textContent = methodLabel;
+      $("#li-port").innerHTML = `<span class="mono">:${ch.novnc_port}</span>`;
+      $("#li-probe").innerHTML = `<span class="mono">${ch.probe_url}</span>`;
     }
+
+    // ── 登录 tab：真 noVNC iframe（进入 login tab 时拉 url）──
+    async function loadVnc() {
+      try {
+        const { url } = await api.login(ch.id);
+        let f = $("#vnc-frame");
+        if (!f) {
+          f = document.createElement("iframe");
+          f.id = "vnc-frame"; f.style.cssText = "width:100%;height:560px;border:0;";
+          const portal = $("#portal");
+          if (portal) portal.replaceWith(f);   // 用 iframe 替换仿真 portal 容器
+        }
+        f.src = url;
+      } catch (e) { toast("拉取登录窗失败：" + e.message, false); }
+    }
+
     function syncStatus() {
       const stopped = ch.status === "stopped";
       $("#top-badge").innerHTML = badgeHTML(ch.status);
@@ -512,52 +515,70 @@
     function goLogin() {
       const loginTab = document.querySelector('.tab[data-tab="login"]');
       if (loginTab) loginTab.click();
+      loadVnc();
     }
     $("#act-relogin").addEventListener("click", () => { goLogin(); toast("已打开登录窗口，请在窗口内重新过验证"); });
-    $("#vnc-relogin").addEventListener("click", () => toast("已请求重新登录：请在上方窗口完成验证，完成后将自动探活"));
-    $("#vnc-reload").addEventListener("click", () => toast("noVNC 窗口已刷新"));
-    $("#act-probe").addEventListener("click", (e) => probe(e.currentTarget));
-    $("#health-refresh").addEventListener("click", (e) => probe(e.currentTarget));
-    $("#act-restart").addEventListener("click", (e) => {
+    $("#vnc-relogin").addEventListener("click", () => { loadVnc(); toast("已请求重新登录：请在上方窗口完成验证，完成后将自动探活"); });
+    $("#vnc-reload").addEventListener("click", () => { loadVnc(); toast("noVNC 窗口已刷新"); });
+
+    // ── 共享动作：检测连通（后端 SOCKS5 探活）──
+    async function doProbe(btn) {
+      // 纯图标按钮（含 <svg> 或无文本）只切 disabled 态，避免文案覆盖把图标清掉
+      const isIcon = btn && (btn.querySelector("svg") || !btn.textContent.trim());
+      const orig = btn && !isIcon ? btn.textContent : null;
+      if (btn) { if (!isIcon) btn.textContent = "检测中…"; btn.disabled = true; }
+      try {
+        const r = await api.status(ch.id);
+        await boot();
+        setLastProbe();
+        toast(r.connected ? `隧道真通 · ${r.latency_ms ?? "?"} ms · SOCKS5 探活通过` : "探活失败：未连通", r.connected);
+      } catch (e) { toast("探活出错：" + e.message, false); }
+      finally { if (btn) { btn.disabled = false; if (!isIcon && orig != null) btn.textContent = orig; } }
+    }
+    $("#act-probe").addEventListener("click", (e) => doProbe(e.currentTarget));
+    $("#health-refresh").addEventListener("click", (e) => doProbe(e.currentTarget));
+
+    $("#act-restart").addEventListener("click", async (e) => {
       const btn = e.currentTarget, orig = btn.textContent;
       btn.textContent = "重启中…"; btn.disabled = true;
-      ch.status = "starting"; syncStatus(); renderHealth();
-      setTimeout(() => {
-        btn.disabled = false; btn.textContent = orig;
-        ch.status = "running"; ch.latency_ms = null; syncStatus(); renderHealth();
+      try {
+        await api.stop(ch.id);
+        await api.start(ch.id);
+        await boot();
         toast("容器已重启 · SOCKS5 监听就绪，请登录后探活");
-        appendLog([
-          ["ts", new Date().toLocaleTimeString("zh-CN", { hour12: false })],
-          [null, "  容器重启：复用 FAKE_HWADDR=" + ch.mac + " 卷=" + ch.volume_name],
-          ["ok", "  danted: SOCKS5 监听 0.0.0.0:1080 就绪"],
-        ]);
-      }, 1300);
+      } catch (err) { toast("重启出错：" + err.message, false); }
+      finally { btn.disabled = false; btn.textContent = orig; }
     });
-    $("#act-power").addEventListener("click", (e) => {
+    $("#act-power").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
-      if (ch.status === "stopped") { ch.status = "starting"; syncStatus(); renderHealth(); toast("容器启动中…"); setTimeout(() => { ch.status = "running"; ch.latency_ms = null; syncStatus(); renderHealth(); toast("已启动，请登录后探活"); }, 1200); }
-      else { ch.status = "stopped"; ch.latency_ms = null; ch.uptime = "—"; syncStatus(); renderHealth(); toast("容器已停止"); }
+      btn.disabled = true;
+      try {
+        if (ch.status === "stopped") { await api.start(ch.id); await boot(); toast("已启动，请登录后探活"); }
+        else { await api.stop(ch.id); await boot(); toast("容器已停止"); }
+      } catch (err) { toast("操作出错：" + err.message, false); }
+      finally { btn.disabled = false; }
     });
 
     // ── 删除 ──
-    $("#del-name").textContent = containerId;
-    $("#del-confirm").addEventListener("click", () => {
+    $("#del-confirm").addEventListener("click", async () => {
       closeOverlay("del-modal");
-      toast(`已删除 ${ch.name} · 域名规则已从 mihomo / Clash 摘除`);
-      setTimeout(() => location.href = "index.html", 900);
+      try {
+        await api.remove(ch.id);
+        toast(`已删除 ${ch.name} · 域名规则已从 mihomo / Clash 摘除`);
+        setTimeout(() => location.href = "index.html", 900);
+      } catch (e) { toast("删除出错：" + e.message, false); }
     });
 
     // ── 分流规则：域名（DOMAIN-SUFFIX）+ IP/网段（IP-CIDR·no-resolve）──
-    ch.ips = ch.ips || [];
-    function ruleRow(type, d, i) {
+    function ruleRow(type, d) {
       const meta = type === "IP-CIDR"
         ? `<td class="muted t-xs">IP-CIDR · <span class="mono">no-resolve</span></td>`
         : `<td class="muted t-xs">DOMAIN-SUFFIX</td>`;
-      return `<tr data-i="${i}">
+      return `<tr data-id="${d.id}">
         <td class="mono">${d.pattern}</td>
         ${meta}
-        <td><span class="switch ${d.enabled ? "on" : ""}" role="switch" aria-checked="${d.enabled}" data-toggle="${i}"></span></td>
-        <td class="r"><button class="btn btn-sm btn-danger" data-del="${i}" aria-label="删除">删除</button></td>
+        <td><span class="switch ${d.enabled ? "on" : ""}" role="switch" aria-checked="${!!d.enabled}" data-toggle="${d.id}"></span></td>
+        <td class="r"><button class="btn btn-sm btn-danger" data-del="${d.id}" aria-label="删除">删除</button></td>
       </tr>`;
     }
     function wireRuleTable(o) {
@@ -567,91 +588,80 @@
           body.innerHTML = `<tr><td colspan="4"><div class="empty" style="padding:var(--space-6);">${o.empty}</div></td></tr>`;
           return;
         }
-        body.innerHTML = o.list.map((d, i) => ruleRow(o.type, d, i)).join("");
-        $$(`${o.bodySel} [data-toggle]`).forEach(sw => sw.addEventListener("click", () => {
-          const d = o.list[+sw.dataset.toggle]; d.enabled = !d.enabled; render();
-          toast(`${d.pattern} 已${d.enabled ? "启用" : "停用"} → 热重载 chan${ch.id} 规则`);
+        body.innerHTML = o.list.map((d) => ruleRow(o.type, d)).join("");
+        $$(`${o.bodySel} [data-toggle]`).forEach(sw => sw.addEventListener("click", async () => {
+          const d = o.list.find(x => String(x.id) === sw.dataset.toggle);
+          if (!d) return;
+          try {
+            await api.toggleRule(ch.id, d.id, !d.enabled);
+            d.enabled = d.enabled ? 0 : 1; render();
+            toast(`${d.pattern} 已${d.enabled ? "启用" : "停用"} → 热重载 chan${ch.id} 规则`);
+          } catch (e) { toast("操作出错：" + e.message, false); }
         }));
-        $$(`${o.bodySel} [data-del]`).forEach(b => b.addEventListener("click", () => {
-          const d = o.list.splice(+b.dataset.del, 1)[0]; render();
-          toast(`已删除 ${d.pattern} → PUT /providers/rules/chan${ch.id} 热重载`);
+        $$(`${o.bodySel} [data-del]`).forEach(b => b.addEventListener("click", async () => {
+          const d = o.list.find(x => String(x.id) === b.dataset.del);
+          if (!d) return;
+          try {
+            await api.delRule(ch.id, d.id);
+            o.list.splice(o.list.indexOf(d), 1); render();
+            toast(`已删除 ${d.pattern} → PUT /providers/rules/chan${ch.id} 热重载`);
+          } catch (e) { toast("删除出错：" + e.message, false); }
         }));
       }
-      $(o.formSel).addEventListener("submit", (e) => {
+      o.render = render;
+      $(o.formSel).addEventListener("submit", async (e) => {
         e.preventDefault();
-        let added = 0, dup = 0, bad = 0;
-        parseTokens(e.target.pat.value).forEach((tok) => {
-          const v = o.normalize ? o.normalize(tok) : tok;
-          if (!v) { bad++; return; }
-          if (o.list.some((d) => d.pattern === v)) { dup++; return; }
-          o.list.push({ pattern: v, enabled: true }); added++;
-        });
-        e.target.pat.value = ""; render();
-        if (added) toast(`已绑定 ${added} 条${o.label} → 写 ./prov/chan${ch.id}.yaml 热重载，不断现有连接`);
-        else if (bad) toast(`格式无法识别，请检查${o.label}写法`, false);
-        else if (dup) toast(`这些${o.label}已绑定`, false);
+        const toks = parseTokens(e.target.pat.value);
+        if (!toks.length) { toast(`请填写${o.label}`, false); return; }
+        try {
+          const r = await api.addRules(ch.id, toks, o.kind);
+          e.target.pat.value = "";
+          o.list = o.kind === "ip" ? r.ips : r.domains;
+          render();
+          const n = o.kind === "ip" ? r.added.ip : r.added.domain;
+          if (n) toast(`已绑定 ${n} 条${o.label} → 写 ./prov/chan${ch.id}.yaml 热重载，不断现有连接`);
+          else if (r.rejected.length) toast(`格式无法识别：${r.rejected.join("，")}`, false);
+          else toast(`这些${o.label}已绑定`, false);
+        } catch (err) { toast("绑定出错：" + err.message, false); }
       });
       render();
     }
-    wireRuleTable({ list: ch.domains, type: "DOMAIN-SUFFIX", bodySel: "#domain-body", formSel: "#add-domain", label: "域名", empty: "尚未绑定域名，命中本通道的客户域名会从这里走 VPN 出口" });
-    wireRuleTable({ list: ch.ips, type: "IP-CIDR", bodySel: "#ip-body", formSel: "#add-ip", label: "IP / 网段", normalize: normIp, empty: "尚未绑定 IP / 网段，没有域名的内网主机可按目的 IP 直接分流" });
-
-    // ── 日志 ──
-    $("#logs-title").textContent = `docker logs · ${containerId}`;
-    const baseLog = [
-      ["ts", "06:14:02"], [null, ` 启动 ${k.label}${ch.ec_ver ? " " + ch.ec_ver : ""} (FAKE_HWADDR=${ch.mac})`],
-      ["ts", "06:14:03"], [null, " tigervnc: 桌面就绪 :1 (geometry 1024x720)"],
-      ["ts", "06:14:03"], [null, " websockify: 0.0.0.0:8080 → :5901 转发已建立"],
-      ["ts", "06:14:05"], ["wn", " 等待用户登录：浏览器打开 noVNC 完成验证"],
-      ...(ch.status === "logged_in" ? [
-        ["ts", "06:14:41"], ["ok", ` 登录成功：${k.label} 隧道已建立`],
-        ["ts", "06:14:41"], [null, " danted: SOCKS5 监听 0.0.0.0:1080"],
-        ["ts", "06:14:42"], [null, ` curl --socks5-hostname 127.0.0.1:1080 ${ch.probe_url}`],
-        ["ts", "06:14:42"], ["ok", ` 探活 200 OK · ${ch.latency_ms ?? 42} ms（隧道真通）`],
-        ["ts", "06:14:42"], [null, ` [mihomo] provider chan${ch.id} reload：${ch.domains.length} 域名 + ${ch.ips.length} IP 规则已热加载`],
-      ] : ch.status === "stopped" ? [
-        ["ts", "06:20:10"], ["wn", " 容器已停止：SOCKS5 不再监听"],
-      ] : [
-        ["ts", "06:14:06"], [null, " danted: SOCKS5 监听 0.0.0.0:1080（端口起，隧道未通）"],
-        ["ts", "06:14:06"], ["wn", " 尚未登录：SOCKS5 探活未通过，请到登录页完成验证"],
-      ]),
-    ];
-    function lineHTML(parts) {
-      // parts: 偶数项=class, 奇数项=text，成对出现
-      let html = "";
-      for (let i = 0; i < parts.length; i += 2) {
-        const cls = parts[i], txt = parts[i + 1];
-        html += cls ? `<span class="${cls}">${txt}</span>` : txt;
+    const domainTable = { type: "DOMAIN-SUFFIX", kind: "domain", bodySel: "#domain-body", formSel: "#add-domain", label: "域名", empty: "尚未绑定域名，命中本通道的客户域名会从这里走 VPN 出口" };
+    const ipTable = { type: "IP-CIDR", kind: "ip", bodySel: "#ip-body", formSel: "#add-ip", label: "IP / 网段", empty: "尚未绑定 IP / 网段，没有域名的内网主机可按目的 IP 直接分流" };
+    let rulesWired = false;
+    function renderRuleTables() {
+      domainTable.list = ch.domains || [];
+      ipTable.list = ch.ips || [];
+      if (!rulesWired) {
+        wireRuleTable(domainTable);
+        wireRuleTable(ipTable);
+        rulesWired = true;
+      } else {
+        domainTable.render(); ipTable.render();
       }
-      return html + "\n";
     }
-    let logLines = [];
-    for (let i = 0; i < baseLog.length; i += 2) logLines.push(lineHTML([baseLog[i][0], baseLog[i][1], baseLog[i + 1][0], baseLog[i + 1][1]]));
-    function paintLogs() { $("#logs-body").innerHTML = logLines.join(""); $("#logs-body").scrollTop = $("#logs-body").scrollHeight; }
-    paintLogs();
-    function appendLog(pairs) {
-      // pairs: [[cls,text],...] 一行
-      let parts = []; pairs.forEach(p => { parts.push(p[0], p[1]); });
-      logLines.push(lineHTML(parts)); paintLogs();
+
+    // ── 日志（真 docker logs）──
+    async function loadLogs() {
+      $("#logs-title").textContent = `docker logs · ${containerId}`;
+      try {
+        const { lines } = await api.logs(ch.id);
+        $("#logs-body").textContent = lines.join("\n");
+      } catch (e) {
+        $("#logs-body").textContent = "<拉取日志失败：" + e.message + ">";
+      }
+      $("#logs-body").scrollTop = $("#logs-body").scrollHeight;
     }
-    const extraLogs = [
-      [["ts", new Date().toLocaleTimeString("zh-CN", { hour12: false })], [null, " keepalive: PING_ADDR 可达，隧道保活正常"]],
-      [["ts", new Date().toLocaleTimeString("zh-CN", { hour12: false })], ["ok", ` [mihomo] GET /providers/proxies/chan${ch.id}-socks/healthcheck → alive`]],
-      [["ts", new Date().toLocaleTimeString("zh-CN", { hour12: false })], [null, " danted: accept socks5 conn from 127.0.0.1（mihomo 第二跳）"]],
-    ];
-    let extraIdx = 0;
-    $("#logs-refresh").addEventListener("click", () => {
-      const row = extraLogs[extraIdx % extraLogs.length]; extraIdx++;
-      const t = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-      appendLog([["ts", t], row[1]]);
-      toast("已追加最新日志");
+    $("#logs-refresh").addEventListener("click", () => { loadLogs(); toast("已刷新日志"); });
+    // 切到日志 tab 时拉真日志
+    const logsTab = document.querySelector('.tab[data-tab="logs"]');
+    if (logsTab) logsTab.addEventListener("click", () => loadLogs());
+
+    // 启动：加载真实数据后渲染整屏
+    boot().then(() => {
+      // 兑现 index.html「登录/重新登录」跳转 channel.html?id=X#login 的意图
+      if (location.hash === "#login") goLogin();
     });
-
-    // 初始同步按钮态
-    syncStatus();
-
-    // 兑现 index.html「登录/重新登录」跳转 channel.html?id=X#login 的意图
-    if (location.hash === "#login") goLogin();
   </script>
 </body>
 </html>

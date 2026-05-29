@@ -245,6 +245,41 @@
           </div>
         </section>
 
+        <!-- 无 Clash 模式 -->
+        <section data-od-id="clash-standalone">
+          <div class="row-between" style="margin-bottom:16px;">
+            <h2>没有 Clash？直接用本工具</h2>
+            <span class="t-sm muted">把系统 / 浏览器代理指向下面的地址即可</span>
+          </div>
+          <article class="card step-card">
+            <div class="card-head">
+              <div class="row" style="gap:12px;">
+                <span class="step-no">·</span>
+                <div>
+                  <h3>系统 / 浏览器代理</h3>
+                  <p class="t-xs muted" style="margin-top:2px;">不装 Clash 时，本工具的第二个 mihomo 实例自己就能分流</p>
+                </div>
+              </div>
+            </div>
+            <div class="card-body" style="padding:0;">
+              <div class="code-head">
+                <span>SOCKS5 / HTTP 代理</span>
+                <button class="copy-btn" id="copy-standalone">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+                  复制
+                </button>
+              </div>
+              <pre class="code" id="code-standalone"></pre>
+              <div class="card-body">
+                <div class="note-line">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+                  <span>把系统 / 浏览器代理指向此地址：命中已绑定客户域名 / IP 的流量自动走对应 VPN 容器，其余流量本工具直接放行直连——无需任何 Clash。</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </section>
+
         <!-- DNS 命门提示 -->
         <div class="banner warn" data-od-id="clash-dns">
           <svg class="bicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
@@ -257,98 +292,111 @@
     </div>
   </div>
 
-  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/app.js"></script>
   <script>
-    const sys = window.VPN.system;
-    const chs = window.VPN.channels;
-
-    // 顶栏 / 侧栏全局态
-    $("#nav-count").textContent = chs.length;
-    $("#foot-port").textContent = ":" + sys.mihomoPort;
-    $("#flow-mihomo").innerHTML = ":" + sys.mihomoPort + " · 第二跳<br>VPN 选择器";
-    if (!sys.clashLinked) {
-      $("#chip-clash").classList.remove("ok");
-      $("#chip-clash").lastChild.textContent = "Clash 未接入";
-    }
-
     // 高亮辅助：把 yaml 文本里的注释 / 键 / 串套上色彩 class
     const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const cmt = (s) => `<span class="cmt">${esc(s)}</span>`;
     const key = (s) => `<span class="key">${esc(s)}</span>`;
     const str = (s) => `<span class="str">${esc(s)}</span>`;
 
-    // ① 节点片段（server / port 取自 system）
-    const proxyPlain =
+    let chs = [], sys = {};
+    async function boot() {
+      [chs, sys] = await Promise.all([api.channels(), api.system()]);
+      const origin = location.origin;          // 如 http://127.0.0.1:42411
+      const mport = sys.mihomo_port;
+
+      // 顶栏 / 侧栏全局态
+      $("#nav-count").textContent = chs.length;
+      $("#foot-port").textContent = ":" + mport;
+      $("#flow-mihomo").innerHTML = ":" + mport + " · 第二跳<br>VPN 选择器";
+      const linked = chs.some((c) => (c.domains || []).length + (c.ips || []).length > 0);
+      if (!linked) {
+        $("#chip-clash").classList.remove("ok");
+        $("#chip-clash").lastChild.textContent = "Clash 未接入";
+      }
+
+      // ① 节点片段（server / port 取自 system）
+      const proxyPlain =
 `- name: vpn-router
   type: socks5
   server: 127.0.0.1
-  port: ${sys.mihomoPort}`;
-    $("#code-proxy").innerHTML = [
-      `- ${key("name")}: ${str("vpn-router")}`,
-      `  ${key("type")}: ${str("socks5")}`,
-      `  ${key("server")}: ${str("127.0.0.1")}`,
-      `  ${key("port")}: ${str(String(sys.mihomoPort))}   ${cmt("# 本工具 mihomo mixed-port")}`,
-    ].join("\n");
+  port: ${mport}`;
+      $("#code-proxy").innerHTML = [
+        `- ${key("name")}: ${str("vpn-router")}`,
+        `  ${key("type")}: ${str("socks5")}`,
+        `  ${key("server")}: ${str("127.0.0.1")}`,
+        `  ${key("port")}: ${str(String(mport))}   ${cmt("# 本工具 mihomo mixed-port")}`,
+      ].join("\n");
 
-    // ② 规则片段：聚合所有通道 enabled 的域名 + IP/网段
-    //    域名   → DOMAIN-SUFFIX,<pattern>,vpn-router,no-resolve
-    //    IP/网段 → IP-CIDR,<cidr>,vpn-router,no-resolve（no-resolve 是命门：按目的 IP 直接命中、不在本地解析）
-    const patterns = [];
-    chs.forEach((c) => c.domains.forEach((d) => {
-      if (d.enabled) {
-        // mihomo 的 +. 前缀等价于 DOMAIN-SUFFIX，这里规整成裸后缀供 Clash 规则使用
-        const p = d.pattern.replace(/^\+\./, "").replace(/^\*\./, "");
-        if (!patterns.includes(p)) patterns.push(p);
-      }
-    }));
-    const cidrs = [];
-    chs.forEach((c) => (c.ips || []).forEach((d) => {
-      if (d.enabled && !cidrs.includes(d.pattern)) cidrs.push(d.pattern);
-    }));
-    $("#rules-count").textContent = patterns.length + cidrs.length;
-    const rulesPlain = [
-      ...patterns.map((p) => `- DOMAIN-SUFFIX,${p},vpn-router,no-resolve`),
-      ...cidrs.map((p) => `- IP-CIDR,${p},vpn-router,no-resolve`),
-    ].join("\n");
-    $("#code-rules").innerHTML = [
-      ...patterns.map((p) => `- ${key("DOMAIN-SUFFIX")},${esc(p)},${str("vpn-router")},${esc("no-resolve")}`),
-      ...cidrs.map((p) => `- ${key("IP-CIDR")},${esc(p)},${str("vpn-router")},${esc("no-resolve")}`),
-    ].join("\n");
+      // ② 规则片段：聚合所有通道 enabled 的域名 + IP/网段
+      //    域名   → DOMAIN-SUFFIX,<pattern>,vpn-router,no-resolve
+      //    IP/网段 → IP-CIDR,<cidr>,vpn-router,no-resolve（no-resolve 是命门：按目的 IP 直接命中、不在本地解析）
+      const patterns = [];
+      chs.forEach((c) => (c.domains || []).forEach((d) => {
+        if (d.enabled) {
+          // mihomo 的 +. 前缀等价于 DOMAIN-SUFFIX，这里规整成裸后缀供 Clash 规则使用
+          const p = d.pattern.replace(/^\+\./, "").replace(/^\*\./, "");
+          if (!patterns.includes(p)) patterns.push(p);
+        }
+      }));
+      const cidrs = [];
+      chs.forEach((c) => (c.ips || []).forEach((d) => {
+        if (d.enabled && !cidrs.includes(d.pattern)) cidrs.push(d.pattern);
+      }));
+      $("#rules-count").textContent = patterns.length + cidrs.length;
+      const rulesPlain = [
+        ...patterns.map((p) => `- DOMAIN-SUFFIX,${p},vpn-router,no-resolve`),
+        ...cidrs.map((p) => `- IP-CIDR,${p},vpn-router,no-resolve`),
+      ].join("\n");
+      $("#code-rules").innerHTML = [
+        ...patterns.map((p) => `- ${key("DOMAIN-SUFFIX")},${esc(p)},${str("vpn-router")},${esc("no-resolve")}`),
+        ...cidrs.map((p) => `- ${key("IP-CIDR")},${esc(p)},${str("vpn-router")},${esc("no-resolve")}`),
+      ].join("\n");
 
-    // ③ rule-provider 订阅片段（url 用 uiPort）
-    //    一份 classical 清单同时容纳域名(DOMAIN-SUFFIX) + IP(IP-CIDR)，保持「只订阅 1 份」
-    const providerUrl = `http://127.0.0.1:${sys.uiPort}/clash/vpn-rules.yaml`;
-    const providerPlain =
+      // ③ rule-provider 订阅片段（url 用当前 origin）
+      //    一份 classical 清单同时容纳域名(DOMAIN-SUFFIX) + IP(IP-CIDR)，保持「只订阅 1 份」
+      const providerUrl = `${origin}/clash/vpn-rules.yaml`;
+      const providerPlain =
 `rule-providers:
   vpn-rules:
     type: http
     behavior: classical
     format: yaml
     url: ${providerUrl}
-    interval: 60
+    interval: 3600
     path: ./providers/vpn-rules.yaml
 
 # 规则里这样引用（末尾 no-resolve 对清单内的 IP-CIDR 生效，域名不受影响）：
 - RULE-SET,vpn-rules,vpn-router,no-resolve`;
-    $("#code-provider").innerHTML = [
-      `${key("rule-providers")}:`,
-      `  ${key("vpn-rules")}:`,
-      `    ${key("type")}: ${str("http")}`,
-      `    ${key("behavior")}: ${str("classical")}   ${cmt("# classical：一份清单同时放域名 + IP")}`,
-      `    ${key("format")}: ${str("yaml")}`,
-      `    ${key("url")}: ${str(providerUrl)}   ${cmt("# 后端对外暴露的 /clash/vpn-rules.yaml")}`,
-      `    ${key("interval")}: ${str("60")}   ${cmt("# 示例：60s 自动同步，可按需调大如 3600")}`,
-      `    ${key("path")}: ${str("./providers/vpn-rules.yaml")}`,
-      ``,
-      `${cmt("# 规则里这样引用（末尾 no-resolve 对清单内的 IP-CIDR 生效，域名不受影响）：")}`,
-      `- ${key("RULE-SET")},${esc("vpn-rules")},${str("vpn-router")},${esc("no-resolve")}`,
-    ].join("\n");
+      $("#code-provider").innerHTML = [
+        `${key("rule-providers")}:`,
+        `  ${key("vpn-rules")}:`,
+        `    ${key("type")}: ${str("http")}`,
+        `    ${key("behavior")}: ${str("classical")}   ${cmt("# classical：一份清单同时放域名 + IP")}`,
+        `    ${key("format")}: ${str("yaml")}`,
+        `    ${key("url")}: ${str(providerUrl)}   ${cmt("# 后端对外暴露的 /clash/vpn-rules.yaml")}`,
+        `    ${key("interval")}: ${str("3600")}   ${cmt("# 每小时自动同步，可按需调整")}`,
+        `    ${key("path")}: ${str("./providers/vpn-rules.yaml")}`,
+        ``,
+        `${cmt("# 规则里这样引用（末尾 no-resolve 对清单内的 IP-CIDR 生效，域名不受影响）：")}`,
+        `- ${key("RULE-SET")},${esc("vpn-rules")},${str("vpn-router")},${esc("no-resolve")}`,
+      ].join("\n");
 
-    // 复制按钮：共享 copyText(text, label)
-    $("#copy-proxy").addEventListener("click", () => copyText(proxyPlain, "已复制片段"));
-    $("#copy-rules").addEventListener("click", () => copyText(rulesPlain, "已复制片段"));
-    $("#copy-provider").addEventListener("click", () => copyText(providerPlain, "已复制片段"));
+      // 无 Clash 模式：把系统 / 浏览器代理直接指向本工具 mihomo
+      const standalonePlain = `127.0.0.1:${mport}`;
+      $("#code-standalone").innerHTML = str(standalonePlain) +
+        `   ${cmt("# SOCKS5 与 HTTP 同端口（mihomo mixed-port）")}`;
+
+      // 复制按钮：共享 copyText(text, label)
+      $("#copy-proxy").addEventListener("click", () => copyText(proxyPlain, "已复制片段"));
+      $("#copy-rules").addEventListener("click", () => copyText(rulesPlain, "已复制片段"));
+      $("#copy-provider").addEventListener("click", () => copyText(providerPlain, "已复制片段"));
+      $("#copy-standalone").addEventListener("click", () => copyText(standalonePlain, "已复制代理地址"));
+    }
+
+    boot();
   </script>
 </body>
 </html>

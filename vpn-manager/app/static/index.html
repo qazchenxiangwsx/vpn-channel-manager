@@ -123,25 +123,17 @@
     </div>
   </div>
 
-  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/app.js"></script>
   <script>
-    const chs = window.VPN.channels;
-
-    // 概览统计
-    const total = chs.length;
-    const ok = chs.filter(c => c.status === "logged_in").length;
-    const wait = chs.filter(c => c.status === "running" || c.status === "starting").length;
+    let chs = [];
+    let sys = {};
     const ruleCount = (c) => c.domains.length + (c.ips ? c.ips.length : 0);
-    const dom = chs.reduce((n, c) => n + ruleCount(c), 0);
-    $("#s-total").textContent = total;
-    $("#s-ok").textContent = ok;
-    $("#s-wait").textContent = wait;
-    $("#s-dom").textContent = dom;
-    $("#ch-count").textContent = total;
-    $("#nav-count").textContent = total;
-    $("#foot-port").textContent = ":" + window.VPN.system.mihomoPort;
-    if (!window.VPN.system.clashLinked) $("#chip-clash").classList.remove("ok"), $("#chip-clash").lastChild.textContent = "Clash 未接入";
+
+    async function load() {
+      [chs, sys] = await Promise.all([api.channels(), api.system()]);
+      paint();
+    }
 
     // 通道卡片
     function actionsFor(c) {
@@ -171,9 +163,9 @@
           ${badgeHTML(c.status)}
         </div>
         <div class="ch-grid">
-          <div class="kv"><div class="k">SOCKS5 出口</div><div class="v">:${c.socks_port}</div></div>
+          <div class="kv"><div class="k">SOCKS5 出口</div><div class="v">${c.socks_endpoint}</div></div>
           <div class="kv"><div class="k">隧道延迟</div><div class="v">${lat}</div></div>
-          <div class="kv"><div class="k">运行时长</div><div class="v">${c.uptime}</div></div>
+          <div class="kv"><div class="k">运行时长</div><div class="v">${c.uptime != null ? c.uptime : "—"}</div></div>
         </div>
         <div class="ch-domains">${doms}</div>
         <form class="row" style="margin-bottom:14px; gap:8px;" onsubmit="return bindRule('${c.id}', this)">
@@ -183,46 +175,8 @@
         <div class="ch-actions">${actionsFor(c)}</div>
       </article>`;
     }
-    $("#channel-list").innerHTML = chs.map(cardHTML).join("");
 
-    // 交互：检测连通（模拟后端 SOCKS5 探活）
-    window.probe = function (id, btn) {
-      const c = chs.find(x => x.id === id);
-      btn.textContent = "检测中…"; btn.disabled = true;
-      setTimeout(() => {
-        btn.disabled = false; btn.textContent = "检测连通";
-        if (c.status === "running") { c.status = "logged_in"; c.latency_ms = 39; refresh(); toast("隧道真通 · 39 ms · 已登录"); }
-        else if (c.status === "logged_in") toast(`隧道真通 · ${c.latency_ms} ms`);
-        else toast("探活失败：容器未运行", false);
-      }, 1100);
-    };
-    // 快绑：一次可粘多条，自动识别 IP/网段（走 IP-CIDR）与域名（走 DOMAIN-SUFFIX）
-    window.bindRule = function (id, form) {
-      const c = chs.find(x => x.id === id);
-      c.ips = c.ips || [];
-      let dom = 0, ip = 0, bad = 0, dup = 0;
-      parseTokens(form.pat.value).forEach(t => {
-        if (looksLikeIp(t)) {
-          const v = normIp(t);
-          if (!v) { bad++; return; }
-          if (c.ips.some(x => x.pattern === v)) { dup++; return; }
-          c.ips.push({ pattern: v, enabled: true }); ip++;
-        } else if (c.domains.some(x => x.pattern === t)) { dup++; }
-        else { c.domains.push({ pattern: t, enabled: true }); dom++; }
-      });
-      form.pat.value = ""; refresh();
-      if (dom || ip) toast(`已绑定 ${dom} 域名 / ${ip} IP → mihomo 热加载生效，不断现有连接`);
-      else if (bad) toast("IP 格式无法识别，请检查写法", false);
-      else if (dup) toast("这些规则已绑定", false);
-      return false;
-    };
-    let pendingDel = null;
-    window.askDel = function (id) { pendingDel = id; $("#del-name").textContent = "vpn-" + id; openOverlay("del-modal"); };
-    $("#del-confirm").addEventListener("click", () => {
-      const i = chs.findIndex(x => x.id === pendingDel);
-      if (i > -1) { const n = chs[i].name; chs.splice(i, 1); closeOverlay("del-modal"); refresh(); toast(`已删除 ${n}`); }
-    });
-    function refresh() {
+    function paint() {
       $("#channel-list").innerHTML = chs.map(cardHTML).join("");
       $("#s-total").textContent = chs.length;
       $("#s-ok").textContent = chs.filter(c => c.status === "logged_in").length;
@@ -230,7 +184,46 @@
       $("#s-dom").textContent = chs.reduce((n, c) => n + ruleCount(c), 0);
       $("#ch-count").textContent = chs.length;
       $("#nav-count").textContent = chs.length;
+      $("#foot-port").textContent = ":" + sys.mihomo_port;
+      const linked = chs.some(c => (c.domains || []).length + (c.ips || []).length > 0);
+      if (!linked) { $("#chip-clash").classList.remove("ok"); $("#chip-clash").lastChild.textContent = "Clash 未接入"; }
     }
+
+    // 交互：检测连通（后端 SOCKS5 探活）
+    window.probe = async function (id, btn) {
+      btn.textContent = "检测中…"; btn.disabled = true;
+      try {
+        const r = await api.status(id);
+        await load();
+        toast(r.connected ? `隧道真通 · ${r.latency_ms ?? "?"} ms · 已登录` : "探活失败：未连通", r.connected);
+      } catch (e) { toast("探活出错：" + e.message, false); }
+      finally { btn.disabled = false; btn.textContent = "检测连通"; }
+    };
+    // 快绑：一次可粘多条，后端自动识别 IP/网段（走 IP-CIDR）与域名（走 DOMAIN-SUFFIX）
+    window.bindRule = async function (id, form) {
+      const toks = parseTokens(form.pat.value);
+      if (!toks.length) { toast("请填写域名或 IP", false); return false; }
+      try {
+        const r = await api.addRules(id, toks);
+        form.pat.value = ""; await load();
+        if (r.added.domain || r.added.ip)
+          toast(`已绑定 ${r.added.domain} 域名 / ${r.added.ip} IP → 热加载生效`);
+        else if (r.rejected.length) toast("格式无法识别：" + r.rejected.join(", "), false);
+        else toast("这些规则已绑定", false);
+      } catch (e) { toast("绑定出错：" + e.message, false); }
+      return false;
+    };
+    let pendingDel = null;
+    window.askDel = function (id) { pendingDel = id; $("#del-name").textContent = "vpn-" + id; openOverlay("del-modal"); };
+    $("#del-confirm").addEventListener("click", async () => {
+      try {
+        await api.remove(pendingDel); closeOverlay("del-modal"); await load();
+        toast("已删除 vpn-" + pendingDel);
+      } catch (e) { toast("删除出错：" + e.message, false); }
+    });
+
+    load();
+    setInterval(load, 8000);
   </script>
 </body>
 </html>
