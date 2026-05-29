@@ -34,6 +34,8 @@ services:
       PORT_RANGE_LOW: ${PORT_RANGE_LOW}
       PORT_RANGE_HIGH: ${PORT_RANGE_HIGH}
       DATA_DIR: /data
+      UI_PORT: ${UI_PORT}
+      MIHOMO_CTRL_PORT: ${MIHOMO_CTRL_PORT}
     ports:
       - "127.0.0.1:${UI_PORT}:8000"
     networks: [vpnnet]

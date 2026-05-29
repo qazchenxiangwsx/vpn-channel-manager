@@ -1,8 +1,10 @@
 """容器编排 + mihomo 热加载 + SOCKS5 探活。"""
 import os
+import time
 import requests
 import yaml
 import docker
+from datetime import datetime, timezone
 
 import store
 
@@ -75,21 +77,23 @@ def remove(cid):
 
 
 def probe(ch):
-    """从后端经该通道的 SOCKS5 访问内网探测地址,通=真登录上(socks5h 远程解析)。"""
+    """经该通道 SOCKS5 访问内网探测地址。返回 (通否, 往返毫秒|None)。socks5h=远程解析。"""
     if not ch.get("probe_url"):
-        return False
+        return False, None
     px = f"socks5h://vpn-{ch['id']}:1080"
     try:
+        t0 = time.monotonic()
         r = requests.get(ch["probe_url"], proxies={"http": px, "https": px}, timeout=6)
-        return r.status_code < 500
+        ms = int((time.monotonic() - t0) * 1000)
+        return (r.status_code < 500), ms
     except Exception:
-        return False
+        return False, None
 
 
 def rebuild():
-    """按当前所有通道+域名重写 mihomo 配置并热加载(force reload,不断现有连接)。"""
+    """按当前所有通道+规则重写 mihomo 配置并热加载(force reload,不断现有连接)。"""
     chs = store.list_channels()
-    doms = store.all_domains()
+    rules = store.all_rules()
     try:
         with open(CFG) as f:
             base = yaml.safe_load(f) or {}
@@ -102,9 +106,16 @@ def rebuild():
         for c in chs
     ]
     base["proxy-groups"] = []
-    rules = [f"DOMAIN-SUFFIX,{d['pattern']},ch-{d['channel_id']}" for d in doms]
-    rules.append("MATCH,DIRECT")
-    base["rules"] = rules
+    out = []
+    for r in rules:
+        if not r["enabled"]:
+            continue
+        if r["kind"] == "ip":
+            out.append(f"IP-CIDR,{r['pattern']},ch-{r['channel_id']},no-resolve")
+        else:
+            out.append(f"DOMAIN-SUFFIX,{r['pattern']},ch-{r['channel_id']}")
+    out.append("MATCH,DIRECT")
+    base["rules"] = out
 
     with open(CFG, "w") as f:
         yaml.safe_dump(base, f, allow_unicode=True, sort_keys=False)
@@ -120,3 +131,63 @@ def rebuild():
         return r.status_code
     except Exception as e:
         return f"{type(e).__name__}: {e}"
+
+
+def _parse_docker_time(s):
+    s = s.replace("Z", "+00:00")
+    if "." in s:
+        head, rest = s.split(".", 1)
+        tz = ""
+        for sep in ("+", "-"):
+            if sep in rest:
+                rest, tzpart = rest.split(sep, 1)
+                tz = sep + tzpart
+                break
+        s = f"{head}.{rest[:6]}{tz}"
+    return datetime.fromisoformat(s)
+
+
+def uptime(cid):
+    """容器已运行时长,人话字符串;停止/不存在返回 None。"""
+    try:
+        c = dc.containers.get(f"vpn-{cid}")
+        st = c.attrs.get("State", {})
+        if not st.get("Running"):
+            return None
+        secs = int((datetime.now(timezone.utc) - _parse_docker_time(st["StartedAt"])).total_seconds())
+        if secs < 60:
+            return f"{secs}秒"
+        if secs < 3600:
+            return f"{secs // 60}分钟"
+        if secs < 86400:
+            return f"{secs // 3600}小时{(secs % 3600) // 60}分"
+        return f"{secs // 86400}天{(secs % 86400) // 3600}小时"
+    except Exception:
+        return None
+
+
+def logs(cid, tail=200):
+    try:
+        c = dc.containers.get(f"vpn-{cid}")
+        return c.logs(tail=tail).decode("utf-8", "replace").splitlines()
+    except Exception as e:
+        return [f"<no logs: {type(e).__name__}: {e}>"]
+
+
+def connections():
+    """代理 mihomo /connections 给监控屏。"""
+    try:
+        r = requests.get(f"{CTRL}/connections",
+                         headers={"Authorization": f"Bearer {SECRET}"}, timeout=5)
+        return r.json()
+    except Exception:
+        return {"connections": [], "downloadTotal": 0, "uploadTotal": 0}
+
+
+def mihomo_alive():
+    try:
+        r = requests.get(f"{CTRL}/version",
+                         headers={"Authorization": f"Bearer {SECRET}"}, timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False

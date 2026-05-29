@@ -37,8 +37,21 @@ def init():
               mac TEXT, novnc_port INTEGER, probe_url TEXT, status TEXT, container_id TEXT);
             CREATE TABLE IF NOT EXISTS domains(
               id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT, pattern TEXT);
+            CREATE TABLE IF NOT EXISTS rules(
+              id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT,
+              kind TEXT, pattern TEXT, enabled INTEGER DEFAULT 1);
             """
         )
+        cols = [r[1] for r in c.execute("PRAGMA table_info(channels)").fetchall()]
+        if "latency_ms" not in cols:
+            c.execute("ALTER TABLE channels ADD COLUMN latency_ms INTEGER")
+        # 旧 domains 一次性迁入 rules(仅当 rules 为空)
+        if c.execute("SELECT COUNT(*) FROM rules").fetchone()[0] == 0:
+            for r in c.execute("SELECT channel_id, pattern FROM domains").fetchall():
+                c.execute(
+                    "INSERT INTO rules(channel_id,kind,pattern,enabled) VALUES(?,?,?,1)",
+                    (r["channel_id"], "domain", r["pattern"]),
+                )
 
 
 def _row(r):
@@ -92,18 +105,47 @@ def del_channel(cid):
     with _c() as c:
         c.execute("DELETE FROM channels WHERE id=?", (cid,))
         c.execute("DELETE FROM domains WHERE channel_id=?", (cid,))
+        c.execute("DELETE FROM rules WHERE channel_id=?", (cid,))
 
 
-def add_domain(cid, pattern):
+def add_rule(cid, kind, pattern):
     with _c() as c:
-        c.execute("INSERT INTO domains(channel_id,pattern) VALUES(?,?)", (cid, pattern))
+        cur = c.execute(
+            "INSERT INTO rules(channel_id,kind,pattern,enabled) VALUES(?,?,?,1)",
+            (cid, kind, pattern),
+        )
+        return cur.lastrowid
 
 
-def list_domains(cid):
+def list_rules(cid):
     with _c() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM domains WHERE channel_id=?", (cid,)).fetchall()]
+        return [dict(r) for r in c.execute(
+            "SELECT id,channel_id,kind,pattern,enabled FROM rules WHERE channel_id=?",
+            (cid,)).fetchall()]
 
 
-def all_domains():
+def all_rules():
     with _c() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM domains").fetchall()]
+        return [dict(r) for r in c.execute(
+            "SELECT id,channel_id,kind,pattern,enabled FROM rules").fetchall()]
+
+
+def get_rule(rid):
+    with _c() as c:
+        r = c.execute("SELECT * FROM rules WHERE id=?", (rid,)).fetchone()
+        return dict(r) if r else None
+
+
+def del_rule(rid):
+    with _c() as c:
+        c.execute("DELETE FROM rules WHERE id=?", (rid,))
+
+
+def set_rule_enabled(rid, enabled):
+    with _c() as c:
+        c.execute("UPDATE rules SET enabled=? WHERE id=?", (1 if enabled else 0, rid))
+
+
+def set_latency(cid, ms):
+    with _c() as c:
+        c.execute("UPDATE channels SET latency_ms=? WHERE id=?", (ms, cid))
