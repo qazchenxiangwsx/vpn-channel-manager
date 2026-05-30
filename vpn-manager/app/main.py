@@ -89,8 +89,11 @@ def login(cid):
     ch = store.get_channel(cid)
     if not ch or not ch.get("novnc_port"):
         return JSONResponse({"error": "no novnc port"}, status_code=404)
+    manager.ensure_novnc_bridge(cid)   # arm64 镜像 websockify 自愈,否则 noVNC 连不上
+    # path 必须带尾斜杠:镜像内 tinyproxy 把 /websockify 301 重定向到 /websockify/,
+    # 而 WebSocket 握手不跟随 301 → 不加斜杠会「无法连接到服务器」。
     url = (f"http://127.0.0.1:{ch['novnc_port']}/vnc.html"
-           f"?path=websockify&autoconnect=true&resize=remote&password={ch['vnc_password']}")
+           f"?path=websockify/&autoconnect=true&resize=remote&password={ch['vnc_password']}")
     return {"url": url}
 
 

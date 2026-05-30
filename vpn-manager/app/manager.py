@@ -55,6 +55,34 @@ def create_channel(ch, vnc_pwd):
     return c.id, novnc
 
 
+def ensure_novnc_bridge(cid):
+    """确保 noVNC 可用:用一个自起的 websockify 顶在容器 8080(= 映射到 host 的端口)。
+
+    hagb 镜像自带的 noVNC 前端在 arm64 上不稳:websockify(8082)因 `su -s /bin/sh`
+    "Permission denied" 起不来;tinyproxy(8080)偶发因 /etc/tinyproxy-novnc.conf
+    没生成("Read-only file system")而不启动 → noVNC「无法连接到服务器」甚至
+    「未发送任何数据」。这里以 root 直接拉起一个全功能 websockify(--web 同时服务
+    noVNC 静态页 + WS→VNC 桥)占住 8080,绕开整条易碎链路。幂等:已在跑则跳过。
+    """
+    try:
+        c = dc.containers.get(f"vpn-{cid}")
+        start = (
+            "pgrep -f 'websockify --web' >/dev/null 2>&1 && exit 0; "
+            "pkill -f tinyproxy-novnc 2>/dev/null; "
+            "exec websockify --web /usr/local/share/novnc 0.0.0.0:8080 127.0.0.1:5901 "
+            ">/tmp/novnc-bridge.log 2>&1"
+        )
+        c.exec_run(["sh", "-c", start], user="root", detach=True)
+        # 等 8080 起来再返回,避免前端 iframe 抢跑拿到空响应(ERR_EMPTY_RESPONSE)
+        for _ in range(20):
+            rc, _o = c.exec_run(["sh", "-c", "ss -tln 2>/dev/null | grep -q :8080"])
+            if rc == 0:
+                break
+            time.sleep(0.2)
+    except Exception:
+        pass
+
+
 def stop(cid):
     try:
         dc.containers.get(f"vpn-{cid}").stop()

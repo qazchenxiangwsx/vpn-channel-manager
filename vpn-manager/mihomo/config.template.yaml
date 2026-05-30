@@ -1,5 +1,5 @@
 mixed-port: 7899
-allow-lan: false
+allow-lan: true
 mode: rule
 log-level: info
 external-controller: 0.0.0.0:9090
@@ -12,7 +12,7 @@ dns:
   enhanced-mode: redir-host
   nameserver: [223.5.5.5, 119.29.29.29]
   respect-rules: true
-  proxy-server-nameserver: [223.5.5.5]
+  proxy-server-nameserver: [127.0.0.11]  # Docker 内置 DNS:正确解析 vpn-* 容器名到真实 IP(公网 DNS 会 fake-ip → 代理连不上)
 
 sniffer:
   enable: true

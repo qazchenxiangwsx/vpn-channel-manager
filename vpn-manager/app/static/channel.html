@@ -491,7 +491,7 @@
         let f = $("#vnc-frame");
         if (!f) {
           f = document.createElement("iframe");
-          f.id = "vnc-frame"; f.style.cssText = "width:100%;height:560px;border:0;";
+          f.id = "vnc-frame"; f.style.cssText = "width:100%;height:80vh;min-height:640px;border:0;border-radius:8px;resize:vertical;overflow:auto;";
           const portal = $("#portal");
           if (portal) portal.replaceWith(f);   // 用 iframe 替换仿真 portal 容器
         }

@@ -27,32 +27,14 @@
     .log-stream .ln.warn { color: color-mix(in oklab, var(--warn), white 24%); }
     .log-stream .ln.ok { color: color-mix(in oklab, var(--success), white 32%); }
 
-    /* 仿真登录表单（noVNC stage 内） */
-    .vnc-login {
-      width: 100%; max-width: 320px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-md); padding: var(--space-6);
-      box-shadow: var(--elev-raised);
+    /* noVNC 加载占位（真 iframe 加载后被替换） */
+    .vnc-placeholder {
+      width: 100%; min-height: 320px;
+      display: grid; place-items: center;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--muted); font-size: var(--text-sm);
     }
-    .vnc-login .vl-brand { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-5); }
-    .vnc-login .vl-brand .vl-mark {
-      width: 26px; height: 26px; border-radius: var(--radius-sm); flex: none;
-      background: var(--accent-soft); color: var(--accent); display: grid; place-items: center;
-    }
-    .vnc-login .vl-brand .vl-mark svg { width: 15px; height: 15px; }
-    .vnc-login .vl-brand .vl-t { font-weight: 600; font-size: var(--text-sm); }
-    .vnc-login .vl-brand .vl-s { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
-    .vnc-login .vl-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: var(--space-3); }
-    .vnc-login .vl-field label { font-size: var(--text-xs); color: var(--muted); }
-    .vnc-login .vl-sms { display: flex; gap: var(--space-2); }
-    .vnc-login .vl-sms .input { flex: 1; }
-    .vnc-login .vl-qr {
-      width: 132px; height: 132px; margin: 0 auto var(--space-3);
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      display: grid; place-items: center; color: var(--muted);
-      background: var(--surface-2);
-    }
-    .vnc-login .vl-qr svg { width: 88px; height: 88px; }
 
     /* 探测结果占位 */
     .probe-result { display: none; }
@@ -285,45 +267,7 @@
                 <div class="card-body stack-6">
                   <!-- 交互登录路径（login=interactive 或 aTrust）：noVNC 仿真登录窗 -->
                   <div id="login-interactive" class="stack-6">
-                    <div class="vnc-frame">
-                      <div class="vnc-bar">
-                        <span class="vdot"></span>
-                        <span>noVNC · <span id="vnc-addr">127.0.0.1:18084</span></span>
-                        <span class="vbtns"><span></span><span></span><span></span></span>
-                      </div>
-                      <div class="vnc-stage">
-                        <div class="vnc-login" id="vnc-login">
-                          <div class="vl-brand">
-                            <span class="vl-mark">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5l8-3z"/></svg>
-                            </span>
-                            <div>
-                              <div class="vl-t" id="vnc-brand-t">EasyConnect 企业登录</div>
-                              <div class="vl-s" id="vnc-brand-s">sslvpn.example.com</div>
-                            </div>
-                          </div>
-                          <!-- 交互登录：短信 / 扫码 SSO -->
-                          <div id="vnc-sms-form">
-                            <div class="vl-field"><label>账号</label><input class="input" placeholder="企业账号" /></div>
-                            <div class="vl-field"><label>密码</label><input class="input" type="password" placeholder="••••••••" /></div>
-                            <div class="vl-field">
-                              <label>短信验证码</label>
-                              <div class="vl-sms">
-                                <input class="input" placeholder="6 位短信码" />
-                                <button class="btn btn-sm btn-secondary" type="button" id="sms-btn">获取验证码</button>
-                              </div>
-                            </div>
-                            <button class="btn btn-primary btn-block" type="button" style="margin-top:6px;">登 录</button>
-                          </div>
-                          <div id="vnc-qr-form" style="display:none; text-align:center;">
-                            <div class="vl-qr">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M20 14v3M14 20h3M20 20h.01"/></svg>
-                            </div>
-                            <p class="t-xs muted">打开企业 App 扫码，或使用 SSO 单点登录完成验证。</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <div id="vnc-placeholder" class="vnc-placeholder">正在拉起 noVNC 登录窗…</div>
 
                     <div class="banner warn" data-od-id="login-warn">
                       <svg class="bicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
@@ -505,7 +449,6 @@
     $("#sum-novnc").textContent = "容器内 8080";
     $("#sum-mac").textContent = fakeMac;
     $("#sum-vol").textContent = volName;
-    $("#vnc-addr").textContent = "noVNC（host 端口创建时分配）";
 
     const KIND = { easyconnect: "EasyConnect", atrust: "aTrust" };
     const LOGIN = { password: "账号密码", interactive: "交互登录" };
@@ -553,8 +496,6 @@
       pwdChoice.classList.toggle("disabled", isAtrust);
       $("#login-help").style.display = isAtrust ? "" : "none";
       if (isAtrust && model.login === "password") setLogin("interactive");
-      // 品牌图标文案
-      $("#vnc-brand-t").textContent = (isAtrust ? "aTrust" : "EasyConnect") + " 企业登录";
       syncLoginStep();
       syncSummary();
     }));
@@ -573,10 +514,6 @@
       const headless = model.login === "password";   // 仅 EC+账密走无头；aTrust 已强制 interactive
       $("#login-headless").style.display = headless ? "" : "none";
       $("#login-interactive").style.display = headless ? "none" : "";
-      // 交互登录里：aTrust 走扫码 / SSO，EC 走短信 / 账密
-      const qr = model.type === "atrust";
-      $("#vnc-sms-form").style.display = qr ? "none" : "";
-      $("#vnc-qr-form").style.display = qr ? "" : "none";
       // 第③步徽章：无头注入直接已就绪，交互登录待登录
       const lb = $("#login-badge");
       lb.outerHTML = headless
@@ -715,20 +652,18 @@
         let f = document.getElementById("vnc-frame");
         if (!f) {
           f = document.createElement("iframe");
-          f.id = "vnc-frame"; f.style.cssText = "width:100%;height:520px;border:0;border-radius:8px;";
-          $("#login-interactive").prepend(f);
+          f.id = "vnc-frame"; f.style.cssText = "width:100%;height:80vh;min-height:640px;border:0;border-radius:8px;resize:vertical;overflow:auto;";
+          const ph = document.getElementById("vnc-placeholder");
+          if (ph) ph.replaceWith(f); else $("#login-interactive").prepend(f);
         }
         f.src = url;
-      } catch (e) { toast("拉取登录窗失败:" + e.message, false); }
+      } catch (e) {
+        const ph = document.getElementById("vnc-placeholder");
+        if (ph) ph.textContent = "拉取登录窗失败：" + e.message;
+        toast("拉取登录窗失败:" + e.message, false);
+      }
     }
 
-    // ── ③ 仿真登录：获取验证码倒计时 ──
-    $("#sms-btn").addEventListener("click", () => {
-      const b = $("#sms-btn");
-      let n = 60; b.disabled = true; b.textContent = n + "s";
-      const t = setInterval(() => { n--; b.textContent = n + "s"; if (n <= 0) { clearInterval(t); b.disabled = false; b.textContent = "获取验证码"; } }, 1000);
-      toast("短信验证码已发送（演示）");
-    });
     $("#go-4").addEventListener("click", () => { buildProbeCmd(); gotoStep(4); });
 
     // ── ④ SOCKS5 探活 ──
